@@ -12,7 +12,7 @@ Decision log: `NOTES.md`.
 - [x] Milestone 1 — paper ledger + fee-realistic fill engine (fees, spread, FX) + tests
 - [x] Milestone 2 — data ingestion (CoinGecko crypto + Alpaca stocks + ECB FX)
 - [x] Milestone 3 — strategist modules (50-day MA gate + RSI-tilted DCA, buys only)
-- [ ] Milestone 4 — risk manager
+- [x] Milestone 4 — risk manager (kill switch → cadence caps → 20% sleeve cap → fee floor; drift flags)
 - [ ] Milestone 5 — orchestrator + scheduler + run logging
 - [ ] Milestone 6 — reporting + weekly summary
 - [ ] Milestone 7 — dashboard

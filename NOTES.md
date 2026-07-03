@@ -109,6 +109,30 @@ section. Spec is `trading-assistant-spec.md` v1.1; standing rules in `CLAUDE.md`
 - Multi-asset sleeves are explicitly unimplemented: a second asset in either sleeve raises
   StrategyError rather than silently picking one.
 
+## 2026-07-03 — Milestone 4: risk manager
+
+- **Sleeve value for the per-trade cap = holdings at market + the sleeve's target share of
+  cash.** Without allocating cash, day one gives every sleeve £0 and the 20% cap forbids all
+  trading forever. Day one: crypto sleeve £300 → cap £60 (deliberately equal to
+  base_trade_gbp).
+- **Drift is measured on invested value only** (holdings shares vs target split, cash
+  excluded); no flags while holdings are zero. Early flags (first buy → 100% one sleeve) are
+  accepted noise — it's a flag in a report, never a trade. Convention: flagged only when
+  strictly beyond the ±10pt threshold.
+- **Check order:** kill switch → cadence caps → per-trade cap (resize down) → fee floor
+  (block). Drift flags attach to every decision, including blocks. Resizes append an audit
+  note to the proposal rationale.
+- **Boundary conventions (risk-manager agent):** cap resize fires strictly above the
+  pence-quantized cap; the floor blocks strictly below £50 (exactly £50 passes); at/under-cap
+  proposals pass through as the identical object.
+- **For milestone 5:** `evaluate` trusts the caller for proposals_today / proposals_this_week
+  — the orchestrator must source them from the runs/proposals log, and should pass an
+  absolute kill_switch_path (the config value is repo-relative).
+- **Known edge for milestone 5 (orchestrator):** strategies cap size at available cash, but
+  fill fees are charged on top, so a proposal at exactly available-cash will fail at
+  record_fill with InsufficientCashError. The orchestrator should pass strategies a slightly
+  haircut cash figure (or catch and log the failure). Decide there, not in risk.py.
+
 ### Numbers worth remembering
 
 - Flat-price round trip on Kraken at £100: **~£0.90 lost** (0.4% + 0.4% taker + 0.1% spread).
