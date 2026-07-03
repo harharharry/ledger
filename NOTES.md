@@ -82,6 +82,32 @@ section. Spec is `trading-assistant-spec.md` v1.1; standing rules in `CLAUDE.md`
   `tests/test_data_integration.py` behind `RUN_INTEGRATION=1`. Manual check:
   `.venv/bin/python -m ledger.data.smoke`.
 
+## 2026-07-03 — Milestone 3: strategist modules
+
+- Built via the crypto-strategist and stocks-strategist subagents (general-purpose agents
+  running those role definitions — .claude/agents/*.md files created mid-session aren't
+  registered as first-class agent types until the next session).
+- **Shared core in `ledger/strategies/signals.py`** (SMA, Wilder RSI, `propose_accumulation`);
+  `crypto.py` / `stocks.py` are thin per-sleeve wrappers. Both sleeves run identical v1 logic
+  by design.
+- **Proposal shape** lives in `ledger/proposals.py`: (sleeve, asset, venue, side, notional_gbp,
+  rationale). Strategies only emit 'buy' in v1 — selling only happens via Harry acting on a
+  drift flag, never from strategy code.
+- **Strategy tunables** in config `[strategy]`: ma_days=50, rsi_period=14, base_trade_gbp=60,
+  RSI bounds 30/70, tilts 1.5x/0.5x.
+- **Sizing order:** base → RSI tilt → cap at available cash → fee floor check (below £50 →
+  no proposal). Thin history (< ma_days+1 closes) raises StrategyError — fail loudly, never
+  guess.
+- **⚠ Finding (crypto-strategist agent, verified analytically + by search): `rsi_oversold=30`
+  is unreachable dead config under the trend filter.** Wilder RSI(14) can't get below ~36
+  while price is still above its 50-day MA, so the 1.5x dip tilt never fires; the strategy is
+  effectively plain gated DCA with only the overbought reduction. If the dip tilt should be
+  live, raise `rsi_oversold` to ~40–45 in config. **Decision pending — Harry's call.**
+- Related: at defaults, the overbought tilt (£60 × 0.5 = £30) always lands below the £50
+  floor, so overbought days propose nothing at all. Treated as intentional (fee-drag rule).
+- Multi-asset sleeves are explicitly unimplemented: a second asset in either sleeve raises
+  StrategyError rather than silently picking one.
+
 ### Numbers worth remembering
 
 - Flat-price round trip on Kraken at £100: **~£0.90 lost** (0.4% + 0.4% taker + 0.1% spread).

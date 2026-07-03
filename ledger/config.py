@@ -46,6 +46,17 @@ class TradingConfig:
 
 
 @dataclass(frozen=True)
+class StrategyConfig:
+    ma_days: int
+    rsi_period: int
+    base_trade_gbp: Decimal
+    rsi_oversold: Decimal  # RSI scale 0-100, not a fraction
+    rsi_overbought: Decimal
+    oversold_tilt: Decimal  # plain size multipliers, not percentages
+    overbought_tilt: Decimal
+
+
+@dataclass(frozen=True)
 class FxConfig:
     conversion_cost_rate: Decimal  # one-way cost as a fraction of GBP notional
 
@@ -68,6 +79,7 @@ class AssetConfig:
 class Config:
     portfolio: PortfolioConfig
     trading: TradingConfig
+    strategy: StrategyConfig
     fx: FxConfig
     runtime: RuntimeConfig
     venues: dict[str, VenueConfig]
@@ -131,6 +143,25 @@ def load_config(path: str | Path) -> Config:
     if trading.min_trade_gbp <= 0:
         raise ConfigError("[trading] min_trade_gbp must be positive")
 
+    s = _section(data, "strategy")
+    strategy = StrategyConfig(
+        ma_days=int(_require(s, "ma_days", "strategy")),
+        rsi_period=int(_require(s, "rsi_period", "strategy")),
+        base_trade_gbp=to_decimal(_require(s, "base_trade_gbp", "strategy")),
+        rsi_oversold=to_decimal(_require(s, "rsi_oversold", "strategy")),
+        rsi_overbought=to_decimal(_require(s, "rsi_overbought", "strategy")),
+        oversold_tilt=to_decimal(_require(s, "oversold_tilt", "strategy")),
+        overbought_tilt=to_decimal(_require(s, "overbought_tilt", "strategy")),
+    )
+    if strategy.ma_days < 2 or strategy.rsi_period < 2:
+        raise ConfigError("[strategy] ma_days and rsi_period must each be at least 2")
+    if not (0 < strategy.rsi_oversold < strategy.rsi_overbought < 100):
+        raise ConfigError("[strategy] need 0 < rsi_oversold < rsi_overbought < 100")
+    if strategy.base_trade_gbp <= 0:
+        raise ConfigError("[strategy] base_trade_gbp must be positive")
+    if strategy.oversold_tilt <= 0 or strategy.overbought_tilt <= 0:
+        raise ConfigError("[strategy] tilts must be positive multipliers")
+
     f = _section(data, "fx")
     fx = FxConfig(conversion_cost_rate=_pct_to_frac(f, "conversion_cost_pct", "fx"))
 
@@ -188,6 +219,6 @@ def load_config(path: str | Path) -> Config:
             )
 
     return Config(
-        portfolio=portfolio, trading=trading, fx=fx, runtime=runtime,
-        venues=venues, assets=assets,
+        portfolio=portfolio, trading=trading, strategy=strategy, fx=fx,
+        runtime=runtime, venues=venues, assets=assets,
     )

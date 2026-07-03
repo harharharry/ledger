@@ -13,6 +13,19 @@ min_trade_gbp = 50.00
 max_proposals_per_day = 1
 max_proposals_per_week = 5
 
+# Strategy v1 (spec §6, kept deliberately boring): 50-day MA trend filter gates
+# DCA accumulation; RSI tilts the size. Buys only — rebalancing is flagged by
+# the risk manager for Harry to decide, never traded automatically.
+
+[strategy]
+ma_days = 50
+rsi_period = 14
+base_trade_gbp = 60.00
+rsi_oversold = 30
+rsi_overbought = 70
+oversold_tilt = 1.5   # size multiplier when RSI <= rsi_oversold (dip in an uptrend)
+overbought_tilt = 0.5 # size multiplier when RSI >= rsi_overbought (frothy)
+
 [fx]
 # One-way GBP<->USD conversion cost applied to every trade on a non-GBP venue.
 # Estimate based on Wise/bank retail FX margin; revisit when Phase 2 picks a real rail.
