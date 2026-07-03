@@ -21,7 +21,7 @@ max_proposals_per_week = 5
 ma_days = 50
 rsi_period = 14
 base_trade_gbp = 60.00
-rsi_oversold = 30
+rsi_oversold = 40
 rsi_overbought = 70
 oversold_tilt = 1.5   # size multiplier when RSI <= rsi_oversold (dip in an uptrend)
 overbought_tilt = 0.5 # size multiplier when RSI >= rsi_overbought (frothy)

@@ -156,12 +156,15 @@ def test_oversold_dip_in_uptrend_tilts_size_up(config):
     assert "oversold" in proposal.rationale
 
 
-def test_dip_below_custom_oversold_threshold_is_neutral_at_default(config):
-    # Same series under the real config: RSI ~37.8 is above the default
-    # oversold threshold of 30, so no tilt applies.
+def test_dip_tilts_at_default_threshold(config):
+    # Same series under the real config: RSI ~37.8 is at or below the default
+    # oversold threshold of 40 (raised from 30 on 2026-07-03 — under the trend
+    # filter, RSI below ~36 is unreachable, so 30 was dead config), and the
+    # 1.5x dip tilt fires.
     proposal = propose_accumulation(dip_in_uptrend_series(), BTC, config, PLENTY_OF_CASH)
     assert proposal is not None
-    assert proposal.notional_gbp == D("60.00")
+    assert proposal.notional_gbp == D("90.00")
+    assert "1.5x" in proposal.rationale
 
 
 def test_overbought_tilt_lands_below_floor_and_proposes_nothing(config):

@@ -102,7 +102,8 @@ section. Spec is `trading-assistant-spec.md` v1.1; standing rules in `CLAUDE.md`
   is unreachable dead config under the trend filter.** Wilder RSI(14) can't get below ~36
   while price is still above its 50-day MA, so the 1.5x dip tilt never fires; the strategy is
   effectively plain gated DCA with only the overbought reduction. If the dip tilt should be
-  live, raise `rsi_oversold` to ~40–45 in config. **Decision pending — Harry's call.**
+  live, raise `rsi_oversold` to ~40–45 in config. **Resolved 2026-07-03: Harry raised
+  `rsi_oversold` to 40.**
 - Related: at defaults, the overbought tilt (£60 × 0.5 = £30) always lands below the £50
   floor, so overbought days propose nothing at all. Treated as intentional (fee-drag rule).
 - Multi-asset sleeves are explicitly unimplemented: a second asset in either sleeve raises
