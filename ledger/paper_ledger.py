@@ -158,6 +158,17 @@ class PaperLedger:
     def __exit__(self, *exc) -> None:
         self.close()
 
+    def opening_balance_gbp(self) -> Decimal | None:
+        value = self._meta("opening_balance_gbp")
+        return to_decimal(value) if value is not None else None
+
+    def opened_on(self) -> str | None:
+        """ISO date the opening balance was recorded, or None if not opened."""
+        row = self._conn.execute(
+            "SELECT ts FROM cash_events WHERE kind = 'opening_balance' LIMIT 1"
+        ).fetchone()
+        return row["ts"][:10] if row else None
+
     # -- balances & positions ----------------------------------------------
 
     def cash_balance_gbp(self) -> Decimal:

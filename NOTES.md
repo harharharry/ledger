@@ -189,6 +189,30 @@ section. Spec is `trading-assistant-spec.md` v1.1; standing rules in `CLAUDE.md`
   config starting capital (validated equal to the ledger's opening balance at open time);
   (4) a mid-week report renders a partial week on purpose — producible at any time.
 
+## 2026-07-03 — Milestone 7: dashboard
+
+- **No-build React** (Harry's choice; no Node on this machine): React 18 + htm as ES
+  modules from esm.sh, zero toolchain. Components are ordinary React — a later Vite
+  migration needs no rewrite. Needs internet at page load (CDN); fine for a local tool.
+- `ledger/dashboard_data.py` exporter: pure builder → `dashboard/data.json` (gitignored).
+  Money as strings (frontend never does money math). Degrades gracefully pre-day-one
+  (unlike the weekly report, which refuses) — a live view may show an un-opened ledger.
+- **Sparkline history** reconstructs daily portfolio value from trade history + price
+  series. USD closes convert at *today's* FX for all points — documented approximation;
+  historical FX would need another API for invisible sparkline-scale gain.
+- **Serve command:** `python -m ledger.dashboard` (fetches live prices, exports, serves
+  127.0.0.1:8420; `--no-fetch` to skip APIs). Missing Alpaca keys omit the stocks asset
+  with a loud warning rather than blanking the whole dashboard.
+- **Kill switch toggle in the footer is real**: POST /api/kill-switch creates/removes the
+  KILL_SWITCH file — same override as `touch KILL_SWITCH`. Verified end-to-end in browser.
+  This is the only write endpoint; Phase 2's approve/decline extends this server.
+- Pending-proposal card (the mockup's one loud element) is fully built but renders only
+  when `pending_proposal` is non-null — i.e. never in Phase 1, by design.
+- Live/Paper segmented control: Live is disabled until Phase 2.
+- Testing: exporter has full pytest coverage; the React layer has no JS test infra
+  (deliberate — no toolchain) and was verified in-browser (views, live data, kill-switch
+  round trip, console clean).
+
 ### Numbers worth remembering
 
 - Flat-price round trip on Kraken at £100: **~£0.90 lost** (0.4% + 0.4% taker + 0.1% spread).

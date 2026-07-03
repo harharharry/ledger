@@ -15,7 +15,7 @@ Decision log: `NOTES.md`.
 - [x] Milestone 4 — risk manager (kill switch → cadence caps → 20% sleeve cap → fee floor; drift flags)
 - [x] Milestone 5 — orchestrator + scheduler + run logging (`python -m ledger.orchestrator`, cron `30 7 * * *`)
 - [x] Milestone 6 — reporting + weekly summary (`python -m ledger.reporting`; deterministic, benchmark-first)
-- [ ] Milestone 7 — dashboard
+- [x] Milestone 7 — dashboard (`python -m ledger.dashboard` → http://127.0.0.1:8420; no-build React)
 - [ ] Milestone 8 — Phase 1 observation run (4–6 weeks minimum)
 - [ ] Milestone 9 — Phase 2 (propose-and-approve; nothing executes without human approval)
 
@@ -31,6 +31,16 @@ Decision log: `NOTES.md`.
 - `.claude/agents/` — build-time subagents (crypto-strategist, stocks-strategist,
   risk-manager, reporting). The *deployed* bot is deterministic Python; no LLM calls in the
   trading decision path.
+
+## Dashboard
+
+```sh
+.venv/bin/python -m ledger.dashboard          # fetch live prices, export, serve
+.venv/bin/python -m ledger.dashboard --no-fetch   # serve existing data.json
+```
+
+Then open http://127.0.0.1:8420. No-build React (ES modules via CDN) — no Node required.
+The footer kill-switch toggle creates/removes the real `KILL_SWITCH` file.
 
 ## Running tests
 
