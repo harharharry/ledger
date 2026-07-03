@@ -267,6 +267,20 @@ class PaperLedger:
     def trades(self) -> list[sqlite3.Row]:
         return self._conn.execute("SELECT * FROM trades ORDER BY id").fetchall()
 
+    def trades_between(self, start, end) -> list[sqlite3.Row]:
+        """Trades with a logical run day in [start, end], inclusive."""
+        return self._conn.execute(
+            "SELECT * FROM trades WHERE run_date BETWEEN ? AND ? ORDER BY id",
+            (str(start), str(end)),
+        ).fetchall()
+
+    def runs_between(self, start, end) -> list[sqlite3.Row]:
+        """Run log rows with run_date in [start, end], inclusive."""
+        return self._conn.execute(
+            "SELECT * FROM runs WHERE run_date BETWEEN ? AND ? ORDER BY run_date",
+            (str(start), str(end)),
+        ).fetchall()
+
     # -- benchmark ------------------------------------------------------------
 
     def snapshot_benchmark(

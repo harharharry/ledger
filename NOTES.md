@@ -166,6 +166,29 @@ section. Spec is `trading-assistant-spec.md` v1.1; standing rules in `CLAUDE.md`
   suite date-flaky). The orchestrator passes its run date explicitly; direct `record_fill`
   callers default to the date of `ts`.
 
+## 2026-07-03 — Milestone 6: reporting
+
+- Built via the reporting subagent. `ledger/reporting.py`: `build_weekly_report` (pure,
+  deterministic) + `render_weekly_report` (plain-text template) + `python -m
+  ledger.reporting` live entry point.
+- **LLM prose-polish deferred.** v1 weekly report is a deterministic template — readable,
+  honest, zero API cost. The optional cheap-model rendering (with cost logging, and the
+  numeric report surviving LLM failure) will be wired alongside Phase 2 notification infra.
+  Spec permits LLM here but doesn't require it.
+- **Benchmark is fee-free buy-and-hold** — starting capital split 60/40 at the day-one
+  snapshot prices, held untouched, valued at current prices, no purchase costs deducted.
+  The rendered copy says "before costs" so the comparison's tilt (slightly flattering the
+  benchmark) is explicit. This makes beating it strictly harder — the honest direction to
+  err.
+- Reporting reads the ledger via public accessors only (`trades_between`, `runs_between`
+  added to PaperLedger by the main session); it never writes.
+- **Reporting-agent handoffs:** (1) a week where cron never fired shows as "0 runs" rather
+  than an alarm — real missed-run alerting belongs to Phase 2 notification work (§14.3);
+  (2) changing the ETF after the phase1 benchmark snapshot makes reporting fail loudly by
+  design — **confirming the ETF before day one is load-bearing**; (3) P&L baseline is
+  config starting capital (validated equal to the ledger's opening balance at open time);
+  (4) a mid-week report renders a partial week on purpose — producible at any time.
+
 ### Numbers worth remembering
 
 - Flat-price round trip on Kraken at £100: **~£0.90 lost** (0.4% + 0.4% taker + 0.1% spread).

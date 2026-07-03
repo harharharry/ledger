@@ -14,7 +14,7 @@ Decision log: `NOTES.md`.
 - [x] Milestone 3 — strategist modules (50-day MA gate + RSI-tilted DCA, buys only)
 - [x] Milestone 4 — risk manager (kill switch → cadence caps → 20% sleeve cap → fee floor; drift flags)
 - [x] Milestone 5 — orchestrator + scheduler + run logging (`python -m ledger.orchestrator`, cron `30 7 * * *`)
-- [ ] Milestone 6 — reporting + weekly summary
+- [x] Milestone 6 — reporting + weekly summary (`python -m ledger.reporting`; deterministic, benchmark-first)
 - [ ] Milestone 7 — dashboard
 - [ ] Milestone 8 — Phase 1 observation run (4–6 weeks minimum)
 - [ ] Milestone 9 — Phase 2 (propose-and-approve; nothing executes without human approval)
