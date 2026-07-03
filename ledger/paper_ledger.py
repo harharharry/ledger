@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS meta (
 CREATE TABLE IF NOT EXISTS trades (
     id INTEGER PRIMARY KEY,
     trade_key TEXT NOT NULL UNIQUE,
+    run_date TEXT NOT NULL,
     ts TEXT NOT NULL,
     sleeve TEXT NOT NULL CHECK (sleeve IN ('crypto', 'stocks')),
     venue TEXT NOT NULL,
@@ -188,10 +189,15 @@ class PaperLedger:
         trade_key: str,
         ts: str | None = None,
         rationale: str | None = None,
+        run_date=None,
     ) -> int:
         """Apply a simulated fill to the ledger atomically. Raises
         DuplicateTradeError if trade_key was already recorded — this is the
-        idempotency guard, so callers treat it as 'already done', not failure."""
+        idempotency guard, so callers treat it as 'already done', not failure.
+
+        run_date is the logical run day the cadence caps count against; the
+        orchestrator passes its run date explicitly (which may differ from the
+        wall-clock ts in tests and backfills). Defaults to the date of ts."""
         dupe = self._conn.execute(
             "SELECT id FROM trades WHERE trade_key = ?", (trade_key,)
         ).fetchone()
@@ -226,14 +232,15 @@ class PaperLedger:
                 new_cost = pos.book_cost_gbp - gbp(pos.book_cost_gbp * sold_frac)
 
         ts = ts or _now_iso()
+        run_date = str(run_date) if run_date is not None else ts[:10]
         with self._conn:
             cur = self._conn.execute(
-                "INSERT INTO trades (trade_key, ts, sleeve, venue, asset, side, "
-                "quantity, exec_price, quote_currency, fx_rate, gross_gbp, fee_gbp, "
-                "spread_cost_gbp, fx_cost_gbp, cash_delta_gbp, rationale) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO trades (trade_key, run_date, ts, sleeve, venue, asset, "
+                "side, quantity, exec_price, quote_currency, fx_rate, gross_gbp, "
+                "fee_gbp, spread_cost_gbp, fx_cost_gbp, cash_delta_gbp, rationale) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
-                    trade_key, ts, fill.sleeve, fill.venue, fill.asset, fill.side,
+                    trade_key, run_date, ts, fill.sleeve, fill.venue, fill.asset, fill.side,
                     str(fill.quantity), str(fill.exec_price), fill.quote_currency,
                     str(fill.fx_rate), str(fill.gross_gbp), str(fill.fee_gbp),
                     str(fill.spread_cost_gbp), str(fill.fx_cost_gbp),
@@ -329,16 +336,17 @@ class PaperLedger:
             raise LedgerError(f"no run started for {run_date}")
 
     def trades_count_on(self, day) -> int:
+        """Trades counted against a logical run day (cadence caps key off
+        run_date, not wall-clock ts)."""
         row = self._conn.execute(
-            "SELECT COUNT(*) AS n FROM trades WHERE substr(ts, 1, 10) = ?",
-            (str(day),),
+            "SELECT COUNT(*) AS n FROM trades WHERE run_date = ?", (str(day),)
         ).fetchone()
         return row["n"]
 
     def trades_count_between(self, start, end) -> int:
-        """Trades with a date in [start, end], inclusive."""
+        """Trades with a logical run day in [start, end], inclusive."""
         row = self._conn.execute(
-            "SELECT COUNT(*) AS n FROM trades WHERE substr(ts, 1, 10) BETWEEN ? AND ?",
+            "SELECT COUNT(*) AS n FROM trades WHERE run_date BETWEEN ? AND ?",
             (str(start), str(end)),
         ).fetchone()
         return row["n"]

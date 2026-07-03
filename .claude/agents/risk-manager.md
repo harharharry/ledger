@@ -22,8 +22,10 @@ If your work needs a change there, stop and report it back instead.
 1. The risk layer can **block or resize** a proposal. It can never originate one, never
    increase one, and never convert a block into a different trade.
 2. Limits enforced (all values from config, never hardcoded):
-   - max single trade: per-trade cap as % of the relevant sleeve (default 20%)
-   - minimum trade size floor (default £50) — resize-down below the floor becomes a block
+   - max single trade: per-trade cap as % of the relevant sleeve (default 20%), but never
+     below the trade floor — the floor wins a cap/floor conflict (Harry's decision,
+     2026-07-03; otherwise small sleeves deadlock: 20% of a £200 sleeve is under £50)
+   - minimum trade size floor (default £50) — proposals below it are blocked, never raised
    - allocation drift beyond threshold (default ±10pts) is *flagged*, never auto-rebalanced
    - proposal cadence caps (default 1/day, 5/week)
 3. Kill switch: if engaged, everything is blocked. This check must stay first and must not be

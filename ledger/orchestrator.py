@@ -182,7 +182,9 @@ def run_daily(
             fill = simulate_fill(order, venue, config.fx.conversion_cost_rate)
             trade_key = f"{today}:{approved.sleeve}:{approved.asset}:{approved.side}"
             try:
-                led.record_fill(fill, trade_key, rationale=approved.rationale)
+                led.record_fill(
+                    fill, trade_key, rationale=approved.rationale, run_date=today
+                )
             except DuplicateTradeError:
                 events.append(f"{sleeve}: {trade_key} already recorded — skipped")
                 continue

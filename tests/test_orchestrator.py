@@ -134,21 +134,22 @@ def test_daily_cap_allows_one_trade_and_crypto_goes_first(config, led, switch):
     assert any("stocks: blocked" in e for e in result.events)
 
 
-def test_next_day_stocks_first_but_cap_floor_deadlock(config, led, switch):
-    """Documents a structural conflict at a £500 pot: stocks is most under
-    target on day 2 and gets first claim on the slot, but 20% of its sleeve
-    (£176 of allocated cash → £35 cap) is below the £50 fee floor, so the
-    resize becomes a block and the sleeve can never trade. Logged in NOTES.md
-    as a pending config decision for Harry; if the cap/floor rule changes,
-    this test changes with it."""
+def test_next_day_stocks_gets_the_slot_at_floor_size(config, led, switch):
+    """Day 2: stocks is most under target and gets first claim on the slot.
+    20% of its sleeve (~£176 of allocated cash) is ~£35, below the £50 floor —
+    under the floor-wins rule (Harry's decision, 2026-07-03, NOTES.md) the
+    effective cap is the floor, so the £60 proposal is resized to £50 and
+    trades instead of deadlocking."""
     run(config, led, switch, uptrend("BTC"), uptrend("QQQ", "USD"))
     day2 = TODAY + dt.timedelta(days=1)
     result = run(config, led, switch, uptrend("BTC"), uptrend("QQQ", "USD"), today=day2)
     assert result.outcome == "success"
-    stocks_event = next(e for e in result.events if e.startswith("stocks:"))
-    assert "blocked" in stocks_event
-    # crypto takes the slot instead — the cap/floor deadlock is stocks-specific
-    assert led.trades()[-1]["sleeve"] == "crypto"
+    trade = led.trades()[-1]
+    assert trade["sleeve"] == "stocks" and trade["asset"] == "QQQ"
+    assert D(trade["gross_gbp"]) == D("50.00")
+    assert "trade floor is the effective cap" in trade["rationale"]
+    # the daily slot is spent; crypto reports blocked
+    assert any(e.startswith("crypto: blocked") for e in result.events)
     assert led.trades_count_between(TODAY, day2) == 2
 
 

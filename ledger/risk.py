@@ -10,6 +10,12 @@ Rule order matters and is fixed: kill switch first (CLAUDE.md non-negotiable
 5 — no code path or config value may reorder or skip it), then cadence caps,
 then the per-trade sleeve cap, then the minimum trade floor. First block wins.
 All limits come from config; nothing is hardcoded here.
+
+The per-trade cap is the *greater* of the percentage cap and the trade floor:
+when a sleeve is small enough that its percentage cap falls below the floor,
+the floor becomes the binding cap (otherwise the two rules deadlock the
+sleeve — see NOTES.md, milestone 5, resolved 2026-07-03). Sub-floor arrivals
+are still blocked outright; the floor-block rule itself never softens.
 """
 
 from __future__ import annotations
@@ -168,27 +174,55 @@ def evaluate(
 
     # 3. Per-trade sleeve cap. Oversize proposals are resized DOWN to the
     # cap — never up, and an at-cap or under-cap proposal passes untouched.
-    cap = gbp(trading.per_trade_cap_frac_of_sleeve * sleeve_value_gbp(snapshot, proposal.sleeve, config))
+    #
+    # The effective cap is max(percentage cap, trade floor) — the floor wins
+    # a cap/floor conflict (Harry's decision, 2026-07-03). Without this, a
+    # small sleeve deadlocks: at a £500 pot the stocks sleeve is ~£200, so
+    # the 20% cap is £40 — below the £50 floor — and every proposal is
+    # resized-then-blocked forever. Letting the floor act as the binding
+    # minimum cap means a sleeve can always make at least one floor-sized
+    # trade, which is exactly the minimum the fee-drag rule already demands;
+    # as the sleeve grows past floor/cap_frac the percentage cap dominates
+    # again and both rules keep their original intent.
+    pct_cap = gbp(trading.per_trade_cap_frac_of_sleeve * sleeve_value_gbp(snapshot, proposal.sleeve, config))
+    floor = gbp(trading.min_trade_gbp)
+    cap = max(pct_cap, floor)
+    floor_is_cap = pct_cap < floor
     cap_pct = _pct_label(trading.per_trade_cap_frac_of_sleeve)
     if proposal.notional_gbp > cap:
         original = gbp(proposal.notional_gbp)
+        if floor_is_cap:
+            # Honest audit note: the percentage wasn't what bound here.
+            note = (
+                f" [risk: resized from £{original} to £{cap} — trade floor is "
+                f"the effective cap for this sleeve size]"
+            )
+            reason = (
+                f"notional £{original} exceeds the effective per-trade cap of "
+                f"£{cap} for the {proposal.sleeve} sleeve (the {cap_pct}% cap "
+                f"of £{pct_cap} is below the £{floor} trade floor, so the "
+                f"floor is the binding cap); resized down to £{cap}"
+            )
+        else:
+            note = f" [risk: resized from £{original} to £{cap} — {cap_pct}% sleeve cap]"
+            reason = (
+                f"notional £{original} exceeds the {cap_pct}% per-trade cap "
+                f"of £{cap} for the {proposal.sleeve} sleeve; resized down to £{cap}"
+            )
         surviving = replace(
             proposal,
             notional_gbp=cap,
-            rationale=proposal.rationale
-            + f" [risk: resized from £{original} to £{cap} — {cap_pct}% sleeve cap]",
+            rationale=proposal.rationale + note,
         )
         verdict = "resized"
-        reasons.append(
-            f"notional £{original} exceeds the {cap_pct}% per-trade cap "
-            f"of £{cap} for the {proposal.sleeve} sleeve; resized down to £{cap}"
-        )
+        reasons.append(reason)
 
-    # 4. Fee floor. Applied to the possibly-resized notional: a resize that
-    # lands below the floor becomes a block, and a proposal that *arrives*
-    # below the floor is blocked too — the strategy shouldn't emit those,
-    # but the veto layer doesn't trust upstream. Never raised to the floor:
-    # this layer does not increase trades.
+    # 4. Fee floor. Applied to the surviving notional. Because the effective
+    # cap above is never below the floor, a cap resize can no longer land
+    # under it — but a proposal that *arrives* below the floor is still
+    # blocked, unsoftened: the strategy shouldn't emit those, and the veto
+    # layer doesn't trust upstream. Never raised to the floor: this layer
+    # does not increase trades.
     if surviving.notional_gbp < trading.min_trade_gbp:
         reasons.append(
             f"notional £{gbp(surviving.notional_gbp)} is below the "

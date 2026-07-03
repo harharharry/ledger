@@ -156,8 +156,15 @@ section. Spec is `trading-assistant-spec.md` v1.1; standing rules in `CLAUDE.md`
   resized-then-blocked, forever. The sleeve needs ≥ £250 of value for the cap to clear the
   floor. Crypto clears it only barely (£300 → £60 cap). Options: (a) floor wins when they
   conflict (effective cap = max(20% of sleeve, £50)); (b) raise per_trade_cap_pct; (c) leave
-  strict — stocks sleeve stays dormant and drift flags accumulate. **Decision pending —
-  Harry's call.**
+  strict — stocks sleeve stays dormant and drift flags accumulate. **Resolved 2026-07-03:
+  Harry chose (a) — the floor wins. Effective cap = max(20% of sleeve, min_trade_gbp);
+  implemented in risk.py via the risk-manager subagent. Sub-floor arrivals still block.**
+
+- **Trades carry a `run_date` column** (the logical run day) and cadence caps count
+  against it, not the wall-clock `ts`. Found via a test failure: counting by timestamp let
+  a simulated day-2 run double-trade past the 1/day cap (and would have made the test
+  suite date-flaky). The orchestrator passes its run date explicitly; direct `record_fill`
+  callers default to the date of `ts`.
 
 ### Numbers worth remembering
 

@@ -205,13 +205,15 @@ def test_stocks_sleeve_cap_uses_stocks_allocation(config, tmp_path):
     assert decision.proposal.notional_gbp == D("90.00")
 
 
-# --- fee floor --------------------------------------------------------------
+# --- cap/floor conflict (floor wins — Harry's decision, 2026-07-03) ---------
 
 
-def test_resize_below_floor_becomes_block(config, tmp_path):
-    # £200 cash, no holdings: crypto sleeve £120, cap £24 — under the £50
-    # floor. A £60 proposal resizes to £24, which must then be blocked, not
-    # traded at fee-drag-dominated size.
+def test_floor_wins_cap_floor_conflict_small_sleeve(config, tmp_path):
+    # £200 cash, no holdings: crypto sleeve £120, percentage cap £24 — under
+    # the £50 floor. The floor wins the conflict: the effective cap is £50,
+    # so a £60 proposal is resized to £50.00 (not resized-then-blocked, the
+    # old deadlock). The audit note must honestly credit the floor, not
+    # claim a percentage that wasn't applied.
     decision = evaluate(
         make_proposal(notional="60"),
         day_one_snapshot("200"),
@@ -220,12 +222,42 @@ def test_resize_below_floor_becomes_block(config, tmp_path):
         proposals_this_week=0,
         kill_switch_path=absent_switch(tmp_path),
     )
-    assert decision.verdict == "blocked"
-    assert decision.proposal is None
-    # Both rules acted and both are reported.
-    assert len(decision.reasons) == 2
-    assert "per-trade cap" in decision.reasons[0]
-    assert "minimum trade floor" in decision.reasons[1]
+    assert decision.verdict == "resized"
+    assert decision.proposal is not None
+    assert decision.proposal.notional_gbp == D("50.00")
+    assert decision.proposal.rationale.endswith(
+        " [risk: resized from £60.00 to £50.00 — trade floor is "
+        "the effective cap for this sleeve size]"
+    )
+    assert len(decision.reasons) == 1
+    assert "floor is the binding cap" in decision.reasons[0]
+    # The percentage-cap wording must NOT appear in the audit note.
+    assert "% sleeve cap" not in decision.proposal.rationale
+
+
+def test_percentage_cap_exactly_at_floor_uses_percentage_note(config, tmp_path):
+    # Boundary: crypto holdings £250, no cash → sleeve £250 → 20% cap is
+    # exactly £50, equal to the floor. The percentage cap was NOT below the
+    # floor, so a £60 proposal resizes to £50 with the ordinary percentage
+    # audit note — the floor-cap wording is reserved for genuine conflicts.
+    snapshot = PortfolioSnapshot(cash_gbp=D("0"), holdings_value_gbp={"crypto": D("250")})
+    decision = evaluate(
+        make_proposal(notional="60"),
+        snapshot,
+        config,
+        proposals_today=0,
+        proposals_this_week=0,
+        kill_switch_path=absent_switch(tmp_path),
+    )
+    assert decision.verdict == "resized"
+    assert decision.proposal.notional_gbp == D("50.00")
+    assert decision.proposal.rationale.endswith(
+        " [risk: resized from £60.00 to £50.00 — 20% sleeve cap]"
+    )
+    assert "trade floor is the effective cap" not in decision.proposal.rationale
+
+
+# --- fee floor --------------------------------------------------------------
 
 
 def test_sub_floor_arrival_is_blocked_never_raised(config, tmp_path):
