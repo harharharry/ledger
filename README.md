@@ -13,7 +13,7 @@ Decision log: `NOTES.md`.
 - [x] Milestone 2 — data ingestion (CoinGecko crypto + Alpaca stocks + ECB FX)
 - [x] Milestone 3 — strategist modules (50-day MA gate + RSI-tilted DCA, buys only)
 - [x] Milestone 4 — risk manager (kill switch → cadence caps → 20% sleeve cap → fee floor; drift flags)
-- [ ] Milestone 5 — orchestrator + scheduler + run logging
+- [x] Milestone 5 — orchestrator + scheduler + run logging (`python -m ledger.orchestrator`, cron `30 7 * * *`)
 - [ ] Milestone 6 — reporting + weekly summary
 - [ ] Milestone 7 — dashboard
 - [ ] Milestone 8 — Phase 1 observation run (4–6 weeks minimum)

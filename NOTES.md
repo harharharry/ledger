@@ -133,6 +133,32 @@ section. Spec is `trading-assistant-spec.md` v1.1; standing rules in `CLAUDE.md`
   record_fill with InsufficientCashError. The orchestrator should pass strategies a slightly
   haircut cash figure (or catch and log the failure). Decide there, not in risk.py.
 
+## 2026-07-03 — Milestone 5: orchestrator
+
+- `ledger/orchestrator.py`, built in the main session (the orchestrator wires the agents'
+  modules together; no subagent owns it). Entry point: `python -m ledger.orchestrator`;
+  suggested cron: `30 7 * * *` from the repo root.
+- **Run flow:** idempotency guard (success/no-action days never re-run; crashed/failed days
+  may retry) → run row → kill switch → fetch prices+FX → day-one benchmark snapshot →
+  sleeves in most-under-allocated-first order → strategy → risk veto → paper fill. Every run
+  finishes success / no-action / failure; failures record then re-raise (nonzero exit for
+  cron alerting — actual email/notification wiring lands with Phase 2 infra, noted §14.3).
+- **Phase 1 cadence source:** executed paper trades count as "proposals" for the 1/day,
+  5/week caps (weeks are ISO, Mon–Sun). Phase 2 will count proposals sent instead.
+- **Fee headroom:** strategies receive `affordable_notional()` — sleeve cash ÷ (1 + taker
+  fee + half spread + FX cost), minus a safety penny — so a fill can never bounce off
+  InsufficientCashError. Closes the milestone-4 known edge.
+- **Sleeve cash = target share of total cash** (0.6/0.4), consistent with risk.py's sleeve
+  valuation.
+- **⚠ Structural conflict found (test-documented in test_orchestrator.py): at a £500 pot the
+  20% per-trade cap and the £50 fee floor deadlock the stocks sleeve.** Stocks sleeve value
+  ≈ £200 at best (40% of pot) → cap £40 < £50 floor → every stocks proposal is
+  resized-then-blocked, forever. The sleeve needs ≥ £250 of value for the cap to clear the
+  floor. Crypto clears it only barely (£300 → £60 cap). Options: (a) floor wins when they
+  conflict (effective cap = max(20% of sleeve, £50)); (b) raise per_trade_cap_pct; (c) leave
+  strict — stocks sleeve stays dormant and drift flags accumulate. **Decision pending —
+  Harry's call.**
+
 ### Numbers worth remembering
 
 - Flat-price round trip on Kraken at £100: **~£0.90 lost** (0.4% + 0.4% taker + 0.1% spread).

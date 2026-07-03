@@ -294,6 +294,55 @@ class PaperLedger:
             "SELECT * FROM benchmark_snapshots ORDER BY snapshot_date, asset"
         ).fetchall()
 
+    # -- run log ----------------------------------------------------------------
+
+    def run_outcome(self, run_date) -> str | None:
+        """Outcome of the day's run, or None if it hasn't run (or crashed
+        mid-run without finishing)."""
+        row = self._conn.execute(
+            "SELECT outcome FROM runs WHERE run_date = ?", (str(run_date),)
+        ).fetchone()
+        return row["outcome"] if row else None
+
+    def record_run_start(self, run_date, ts: str | None = None) -> None:
+        """Start (or restart) the day's run row. A re-start clears the previous
+        outcome — callers must check run_outcome first; only crashed (NULL) or
+        'failure' runs should be retried."""
+        with self._conn:
+            self._conn.execute(
+                "INSERT INTO runs (run_date, started_at) VALUES (?, ?) "
+                "ON CONFLICT (run_date) DO UPDATE SET "
+                "started_at = excluded.started_at, finished_at = NULL, "
+                "outcome = NULL, detail = NULL",
+                (str(run_date), ts or _now_iso()),
+            )
+
+    def finish_run(self, run_date, outcome: str, detail: str | None = None,
+                   ts: str | None = None) -> None:
+        with self._conn:
+            cur = self._conn.execute(
+                "UPDATE runs SET finished_at = ?, outcome = ?, detail = ? "
+                "WHERE run_date = ?",
+                (ts or _now_iso(), outcome, detail, str(run_date)),
+            )
+        if cur.rowcount == 0:
+            raise LedgerError(f"no run started for {run_date}")
+
+    def trades_count_on(self, day) -> int:
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM trades WHERE substr(ts, 1, 10) = ?",
+            (str(day),),
+        ).fetchone()
+        return row["n"]
+
+    def trades_count_between(self, start, end) -> int:
+        """Trades with a date in [start, end], inclusive."""
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM trades WHERE substr(ts, 1, 10) BETWEEN ? AND ?",
+            (str(start), str(end)),
+        ).fetchone()
+        return row["n"]
+
     # -- tax export -----------------------------------------------------------
 
     def export_cgt_csv(self, path: str | Path) -> int:
