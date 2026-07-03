@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+ledger.db
+KILL_SWITCH
+.claude/settings.local.json

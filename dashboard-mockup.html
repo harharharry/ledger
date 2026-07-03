@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Ledger — Dashboard Preview</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  :root{
+    --bg: #F5F5F7;
+    --card: #FFFFFF;
+    --ink: #1D1D1F;
+    --ink-soft: #6E6E73;
+    --hairline: rgba(0,0,0,0.06);
+    --blue: #0071E3;
+    --indigo: #5E5CE6;
+    --teal: #30B0C7;
+    --green: #34C759;
+    --red: #FF3B30;
+    --amber: #FF9F0A;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md: 0 10px 30px rgba(0,0,0,0.06);
+    --radius: 20px;
+  }
+
+  *{ box-sizing:border-box; }
+
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+
+  .tabular{ font-variant-numeric: tabular-nums; font-feature-settings:"tnum"; }
+
+  /* ---------- header ---------- */
+  header{
+    position:sticky; top:0; z-index:10;
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    background:rgba(245,245,247,0.72);
+    border-bottom:1px solid var(--hairline);
+  }
+  .header-inner{
+    max-width:920px; margin:0 auto;
+    padding:16px 24px;
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .brand{ display:flex; align-items:center; gap:10px; font-weight:650; font-size:17px; letter-spacing:-0.01em; }
+  .brand-dot{ width:9px; height:9px; border-radius:50%; background:var(--green); box-shadow:0 0 0 4px rgba(52,199,89,0.15); }
+
+  .segmented{
+    display:flex; background:rgba(118,118,128,0.12); border-radius:9px; padding:2px;
+    font-size:13px; font-weight:590;
+  }
+  .segmented button{
+    border:none; background:transparent; padding:6px 14px; border-radius:7px;
+    color:var(--ink-soft); cursor:pointer; transition:all .25s ease; font:inherit;
+  }
+  .segmented button.active{ background:var(--card); color:var(--ink); box-shadow:var(--shadow-sm); }
+
+  .preview-badge{
+    font-size:11px; font-weight:600; color:var(--ink-soft);
+    background:rgba(118,118,128,0.12); padding:4px 10px; border-radius:100px;
+    letter-spacing:.02em;
+  }
+
+  /* ---------- layout ---------- */
+  main{ max-width:920px; margin:0 auto; padding:40px 24px 80px; }
+
+  .hero{ padding:8px 4px 32px; }
+  .hero-label{ color:var(--ink-soft); font-size:15px; font-weight:590; margin-bottom:6px; }
+  .hero-value{ font-size:56px; font-weight:680; letter-spacing:-0.02em; line-height:1; }
+  .hero-sub{ display:flex; align-items:center; gap:10px; margin-top:10px; }
+  .chip{
+    display:inline-flex; align-items:center; gap:4px;
+    font-size:14px; font-weight:650; padding:4px 10px; border-radius:100px;
+  }
+  .chip.up{ color:var(--green); background:rgba(52,199,89,0.12); }
+  .hero-sub .muted{ color:var(--ink-soft); font-size:14px; }
+
+  .sparkline{ margin-top:20px; width:100%; height:64px; }
+
+  .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:20px; margin-bottom:20px; }
+  @media (max-width:680px){ .grid{ grid-template-columns:1fr; } }
+
+  .card{
+    background:var(--card); border-radius:var(--radius);
+    padding:24px; box-shadow:var(--shadow-md); border:1px solid var(--hairline);
+  }
+  .card h3{ margin:0 0 4px; font-size:16px; font-weight:650; letter-spacing:-0.01em; }
+  .card .card-sub{ color:var(--ink-soft); font-size:13px; margin:0 0 18px; }
+
+  /* ---------- rings ---------- */
+  .rings-row{ display:flex; align-items:center; gap:28px; }
+  .ring-legend{ flex:1; display:flex; flex-direction:column; gap:14px; }
+  .legend-item{ display:flex; align-items:center; gap:10px; font-size:14px; }
+  .swatch{ width:10px; height:10px; border-radius:3px; flex-shrink:0; }
+  .legend-text{ display:flex; flex-direction:column; }
+  .legend-text .name{ font-weight:600; }
+  .legend-text .detail{ color:var(--ink-soft); font-size:12.5px; }
+
+  /* ---------- benchmark bars ---------- */
+  .bench-row{ display:flex; flex-direction:column; gap:16px; }
+  .bench-item .top{ display:flex; justify-content:space-between; font-size:13.5px; margin-bottom:6px; }
+  .bench-item .top .name{ font-weight:600; color:var(--ink); }
+  .bench-item .top .val{ font-weight:650; }
+  .bar-track{ height:8px; background:rgba(118,118,128,0.14); border-radius:100px; overflow:hidden; }
+  .bar-fill{ height:100%; border-radius:100px; }
+
+  /* ---------- proposal ---------- */
+  .proposal{
+    border-radius:var(--radius);
+    background:linear-gradient(180deg, rgba(255,159,10,0.08), rgba(255,159,10,0.03));
+    border:1px solid rgba(255,159,10,0.25);
+    padding:22px 24px; margin-bottom:20px;
+  }
+  .proposal-head{ display:flex; align-items:center; gap:8px; margin-bottom:14px; }
+  .proposal-head .dot{ width:8px; height:8px; border-radius:50%; background:var(--amber); }
+  .proposal-head span{ font-size:13px; font-weight:650; color:#B36B00; letter-spacing:.01em; text-transform:uppercase; }
+  .proposal-body{ display:flex; justify-content:space-between; align-items:flex-start; gap:20px; }
+  .proposal-title{ font-size:19px; font-weight:650; letter-spacing:-0.01em; margin-bottom:6px; }
+  .proposal-reason{ color:var(--ink-soft); font-size:14.5px; line-height:1.5; max-width:480px; }
+  .proposal-actions{ display:flex; gap:10px; flex-shrink:0; }
+  .btn{
+    border:none; padding:10px 18px; border-radius:100px; font-size:14px; font-weight:650;
+    cursor:pointer; font-family:inherit; transition:transform .15s ease, opacity .15s ease;
+  }
+  .btn:active{ transform:scale(0.96); }
+  .btn-approve{ background:var(--ink); color:#fff; }
+  .btn-decline{ background:rgba(0,0,0,0.06); color:var(--ink); }
+  .btn.disabled{ opacity:.45; pointer-events:none; }
+
+  /* ---------- activity list ---------- */
+  .activity-card h3{ margin-bottom:2px; }
+  .activity-list{ margin-top:12px; }
+  .activity-item{
+    display:flex; align-items:center; gap:14px;
+    padding:14px 0; border-top:1px solid var(--hairline);
+    cursor:pointer;
+  }
+  .activity-item:first-child{ border-top:none; }
+  .a-icon{
+    width:38px; height:38px; border-radius:11px; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    font-size:16px; font-weight:700; color:#fff;
+  }
+  .a-main{ flex:1; min-width:0; }
+  .a-title{ font-size:14.5px; font-weight:600; }
+  .a-detail{ color:var(--ink-soft); font-size:12.5px; margin-top:2px; }
+  .a-amount{ font-size:14.5px; font-weight:650; text-align:right; flex-shrink:0; }
+  .a-amount .time{ display:block; font-size:11.5px; font-weight:500; color:var(--ink-soft); margin-top:2px; }
+  .a-rationale{
+    max-height:0; overflow:hidden; transition:max-height .3s ease;
+    font-size:13px; color:var(--ink-soft); line-height:1.5;
+  }
+  .activity-item.open .a-rationale{ max-height:80px; margin-top:8px; }
+  .a-wrap{ flex:1; min-width:0; }
+
+  footer{ display:flex; align-items:center; justify-content:space-between; margin-top:8px; padding:0 4px; }
+  footer .updated{ color:var(--ink-soft); font-size:12.5px; }
+  .kill-switch{ display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink-soft); }
+  .toggle{ width:38px; height:22px; border-radius:100px; background:rgba(118,118,128,0.24); position:relative; cursor:pointer; transition:background .2s; }
+  .toggle::after{ content:''; position:absolute; width:18px; height:18px; border-radius:50%; background:#fff; top:2px; left:2px; box-shadow:0 1px 3px rgba(0,0,0,0.2); transition:left .2s; }
+  .toggle.on{ background:var(--green); }
+  .toggle.on::after{ left:18px; }
+
+  /* ---------- tab bar ---------- */
+  .tabbar{
+    max-width:920px; margin:0 auto; padding:14px 24px 0;
+    display:flex; gap:28px; border-bottom:1px solid var(--hairline);
+  }
+  .tabbar button{
+    background:none; border:none; font-family:inherit; font-size:14px; font-weight:600;
+    color:var(--ink-soft); padding:0 0 14px; cursor:pointer; position:relative;
+  }
+  .tabbar button.active{ color:var(--ink); }
+  .tabbar button.active::after{
+    content:''; position:absolute; left:0; right:0; bottom:-1px; height:2px;
+    background:var(--ink); border-radius:2px;
+  }
+  .legend-item.clickable{ cursor:pointer; }
+  .legend-item.clickable:hover .name{ text-decoration:underline; }
+
+  /* ---------- asset detail ---------- */
+  .asset-title{ display:flex; align-items:center; gap:14px; padding:24px 4px 20px; }
+  .asset-icon{
+    width:44px; height:44px; border-radius:13px; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; font-size:18px;
+  }
+  .asset-name{ font-size:15px; font-weight:600; color:var(--ink-soft); }
+  .asset-ticker{ color:var(--ink-soft); font-weight:500; }
+  .asset-price{ font-size:28px; font-weight:680; letter-spacing:-0.01em; margin-top:2px; }
+  .asset-price .chip{ font-size:12.5px; padding:3px 8px; vertical-align:middle; }
+
+  .chart-card-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+  .chart-card-head h3{ margin-bottom:0; }
+  .chart-legend{ display:flex; gap:16px; font-size:12px; color:var(--ink-soft); }
+  .chart-legend span{ display:flex; align-items:center; gap:6px; }
+  .chart-legend i{ width:14px; height:2px; border-radius:2px; display:inline-block; }
+  .chart-legend i.dashed{ background-image:linear-gradient(90deg, #C7C7CC 60%, transparent 40%); background-size:6px 2px; background-color:transparent; }
+  .chart-legend i.dot-i{ width:8px; height:8px; border-radius:50%; }
+  #btc-chart{ width:100%; height:220px; margin-top:14px; }
+
+  .indicator{ display:flex; align-items:flex-start; gap:12px; }
+  .indicator .dot{ width:10px; height:10px; border-radius:50%; margin-top:5px; flex-shrink:0; }
+  .indicator-title{ font-size:16px; font-weight:650; }
+  .indicator-detail{ color:var(--ink-soft); font-size:13px; margin-top:3px; line-height:1.5; }
+
+  .rsi-track{ position:relative; height:8px; border-radius:100px; overflow:visible; display:flex; }
+  .rsi-zone{ height:8px; }
+  .rsi-low{ width:30%; background:#FFD7D2; border-radius:100px 0 0 100px; }
+  .rsi-mid{ width:40%; background:#E5E5EA; }
+  .rsi-high{ width:30%; background:#FFE3BD; border-radius:0 100px 100px 0; }
+  .rsi-marker{
+    position:absolute; top:-4px; width:16px; height:16px; border-radius:50%;
+    background:var(--ink); border:3px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,0.25);
+    transform:translateX(-50%);
+  }
+  .rsi-labels{ display:flex; justify-content:space-between; font-size:11px; color:var(--ink-soft); margin-top:8px; }
+  .synthesis{ font-size:14.5px; line-height:1.6; color:var(--ink); max-width:640px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="brand"><span class="brand-dot"></span> Ledger</div>
+    <div class="segmented">
+      <button class="active" id="tab-paper">Paper</button>
+      <button id="tab-live">Live</button>
+    </div>
+    <div class="preview-badge">Design preview · sample data</div>
+  </div>
+</header>
+
+<div class="tabbar">
+  <button class="active" id="tab-view-overview" onclick="showView('overview')">Overview</button>
+  <button id="tab-view-detail" onclick="showView('detail')">Bitcoin · Technical View</button>
+</div>
+
+<main id="view-overview">
+
+  <section class="hero">
+    <div class="hero-label">Total balance</div>
+    <div class="hero-value tabular">£538.20</div>
+    <div class="hero-sub">
+      <span class="chip up">▲ 7.64%</span>
+      <span class="muted">£38.20 since 12 May · Paper mode</span>
+    </div>
+    <svg class="sparkline" viewBox="0 0 600 64" preserveAspectRatio="none">
+      <polyline points="0,44 40,42 80,46 120,38 160,40 200,30 240,34 280,26 320,29 360,20 400,24 440,16 480,18 520,10 560,13 600,6"
+        fill="none" stroke="#34C759" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </section>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Allocation</h3>
+      <p class="card-sub">Target 60 / 40 · crypto tilted +4pts</p>
+      <div class="rings-row">
+        <svg width="120" height="120" viewBox="0 0 120 120">
+          <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(94,92,230,0.15)" stroke-width="10"/>
+          <circle cx="60" cy="60" r="52" fill="none" stroke="var(--indigo)" stroke-width="10"
+            stroke-dasharray="326.7" stroke-dashoffset="52.3" stroke-linecap="round" transform="rotate(-90 60 60)"/>
+          <circle cx="60" cy="60" r="38" fill="none" stroke="rgba(48,176,199,0.15)" stroke-width="10"/>
+          <circle cx="60" cy="60" r="38" fill="none" stroke="var(--teal)" stroke-width="10"
+            stroke-dasharray="238.8" stroke-dashoffset="100.3" stroke-linecap="round" transform="rotate(-90 60 60)"/>
+        </svg>
+        <div class="ring-legend">
+          <div class="legend-item clickable" onclick="showView('detail')">
+            <span class="swatch" style="background:var(--indigo)"></span>
+            <div class="legend-text"><span class="name">Crypto →</span><span class="detail tabular">64% actual · 60% target</span></div>
+          </div>
+          <div class="legend-item">
+            <span class="swatch" style="background:var(--teal)"></span>
+            <div class="legend-text"><span class="name">Stocks / ETFs</span><span class="detail tabular">36% actual · 40% target</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Vs. just holding</h3>
+      <p class="card-sub">Same start date, untouched allocation</p>
+      <div class="bench-row">
+        <div class="bench-item">
+          <div class="top"><span class="name">Ledger (active)</span><span class="val tabular" style="color:var(--green)">+7.64%</span></div>
+          <div class="bar-track"><div class="bar-fill tabular" style="width:76%; background:var(--green)"></div></div>
+        </div>
+        <div class="bench-item">
+          <div class="top"><span class="name">Buy &amp; hold benchmark</span><span class="val tabular" style="color:var(--ink-soft)">+5.10%</span></div>
+          <div class="bar-track"><div class="bar-fill tabular" style="width:51%; background:#C7C7CC"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="proposal">
+    <div class="proposal-head"><span class="dot"></span><span>Pending approval · sent 08:14 today</span></div>
+    <div class="proposal-body">
+      <div>
+        <div class="proposal-title">Buy £42 of BTC</div>
+        <div class="proposal-reason">Price has held above the 50-day trend line for 6 sessions and this week's scheduled accumulation is due. Sizing kept under the 20% per-trade cap for the crypto sleeve.</div>
+      </div>
+      <div class="proposal-actions">
+        <button class="btn btn-decline">Decline</button>
+        <button class="btn btn-approve">Approve</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card activity-card">
+    <h3>Recent activity</h3>
+    <p class="card-sub">Tap any row for the full rationale</p>
+    <div class="activity-list" id="activity-list">
+
+      <div class="activity-item">
+        <div class="a-icon" style="background:var(--indigo)">B</div>
+        <div class="a-wrap">
+          <div class="a-main">
+            <div class="a-title">Bought BTC</div>
+            <div class="a-detail">Scheduled accumulation</div>
+          </div>
+          <div class="a-rationale">Weekly accumulation trigger fired with trend filter confirming price above the 50-day moving average. No allocation limit breached.</div>
+        </div>
+        <div class="a-amount tabular">£40.00<span class="time">Yesterday</span></div>
+      </div>
+
+      <div class="activity-item">
+        <div class="a-icon" style="background:var(--teal)">S</div>
+        <div class="a-wrap">
+          <div class="a-main">
+            <div class="a-title">Bought QQQ (proxy)</div>
+            <div class="a-detail">Scheduled accumulation</div>
+          </div>
+          <div class="a-rationale">Stocks sleeve accumulation trigger fired. Position kept within the 20% single-trade cap.</div>
+        </div>
+        <div class="a-amount tabular">£28.00<span class="time">Mon</span></div>
+      </div>
+
+      <div class="activity-item">
+        <div class="a-icon" style="background:var(--red)">T</div>
+        <div class="a-wrap">
+          <div class="a-main">
+            <div class="a-title">Risk manager blocked a trade</div>
+            <div class="a-detail">Allocation drift guard</div>
+          </div>
+          <div class="a-rationale">Crypto strategist proposed a buy that would have pushed the crypto sleeve to 71% of the pot, past the ±10pt drift limit. Trade was resized to zero and flagged for this week's review.</div>
+        </div>
+        <div class="a-amount tabular" style="color:var(--ink-soft)">Blocked<span class="time">Fri</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <footer>
+    <span class="updated">Last run 2 hours ago · next run tonight at 20:00</span>
+    <div class="kill-switch">Pause automation <div class="toggle" id="kill"></div></div>
+  </footer>
+
+</main>
+
+<main id="view-detail" style="display:none">
+
+  <div class="asset-title">
+    <span class="asset-icon" style="background:var(--indigo)">B</span>
+    <div>
+      <div class="asset-name">Bitcoin <span class="asset-ticker">· BTC</span></div>
+      <div class="asset-price tabular">£50,140 <span class="chip up">▲ 1.2% today</span></div>
+    </div>
+  </div>
+
+  <div class="card chart-card">
+    <div class="chart-card-head">
+      <h3>Price &amp; trend filter</h3>
+      <div class="chart-legend">
+        <span><i style="background:var(--indigo)"></i> Price</span>
+        <span><i class="dashed"></i> 50-day MA</span>
+        <span><i class="dot-i" style="background:var(--indigo)"></i> Bot buy</span>
+        <span><i class="dot-i" style="background:var(--amber)"></i> Pending</span>
+      </div>
+    </div>
+    <svg id="btc-chart" viewBox="0 0 600 220" preserveAspectRatio="none"></svg>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Trend</h3>
+      <p class="card-sub">50-day moving average filter</p>
+      <div class="indicator">
+        <span class="dot" style="background:var(--green)"></span>
+        <div>
+          <div class="indicator-title">Bullish</div>
+          <div class="indicator-detail">Price has closed above the 50-day MA for 6 straight sessions. This is what's currently gating the crypto strategist's buy signal on.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Momentum</h3>
+      <p class="card-sub">14-period RSI</p>
+      <div class="rsi-track">
+        <div class="rsi-zone rsi-low"></div><div class="rsi-zone rsi-mid"></div><div class="rsi-zone rsi-high"></div>
+        <div class="rsi-marker" style="left:61%"></div>
+      </div>
+      <div class="rsi-labels"><span>Oversold</span><span>Neutral</span><span>Overbought</span></div>
+      <div class="indicator-detail" style="margin-top:12px;">61 — neutral-to-bullish, not yet flagging overbought.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>What the strategist is reading</h3>
+    <p class="card-sub">Plain-English synthesis, regenerated on every run — this is the reasoning behind today's proposal</p>
+    <p class="synthesis">Trend and momentum are both pointing the same direction, and RSI isn't flagging overbought conditions, so today's scheduled accumulation buy was sized at full weight. If RSI pushes past 70 on a future run, sizing gets trimmed automatically regardless of what the trend filter says — momentum extremes override the base schedule.</p>
+  </div>
+
+</main>
+
+<script>
+  document.getElementById('tab-live').addEventListener('click', function(){
+    document.getElementById('tab-live').classList.add('active');
+    document.getElementById('tab-paper').classList.remove('active');
+  });
+  document.getElementById('tab-paper').addEventListener('click', function(){
+    document.getElementById('tab-paper').classList.add('active');
+    document.getElementById('tab-live').classList.remove('active');
+  });
+  document.getElementById('kill').addEventListener('click', function(){
+    this.classList.toggle('on');
+  });
+  document.querySelectorAll('.activity-item').forEach(function(item){
+    item.addEventListener('click', function(){ this.classList.toggle('open'); });
+  });
+
+  function showView(name){
+    var showDetail = name === 'detail';
+    document.getElementById('view-overview').style.display = showDetail ? 'none' : 'block';
+    document.getElementById('view-detail').style.display = showDetail ? 'block' : 'none';
+    document.getElementById('tab-view-overview').classList.toggle('active', !showDetail);
+    document.getElementById('tab-view-detail').classList.toggle('active', showDetail);
+    if(showDetail) renderChart();
+    window.scrollTo({top:0});
+  }
+
+  var chartRendered = false;
+  function renderChart(){
+    if(chartRendered) return;
+    chartRendered = true;
+
+    var prices = [
+      45500,45900,45300,44800,44950,44500,44100,43800,44200,43950,
+      43600,43200,43550,43900,44300,44100,44600,45000,44800,45300,
+      45700,45500,46000,46400,46100,46600,47000,46800,47300,47700,
+      47500,48000,48400,48100,48600,49000,48800,49300,49700,50140
+    ];
+
+    var ma = prices.map(function(_, i){
+      var start = Math.max(0, i - 9);
+      var slice = prices.slice(start, i + 1);
+      return slice.reduce(function(a,b){ return a+b; }, 0) / slice.length;
+    });
+
+    var w = 600, h = 220, padTop = 16, padBottom = 16;
+    var all = prices.concat(ma);
+    var min = Math.min.apply(null, all), max = Math.max.apply(null, all);
+    var range = max - min || 1;
+
+    function x(i){ return (i / (prices.length - 1)) * w; }
+    function y(v){ return padTop + (1 - (v - min) / range) * (h - padTop - padBottom); }
+
+    var pricePts = prices.map(function(v,i){ return x(i) + ',' + y(v).toFixed(1); }).join(' ');
+    var maPts = ma.map(function(v,i){ return x(i) + ',' + y(v).toFixed(1); }).join(' ');
+
+    var svgns = 'http://www.w3.org/2000/svg';
+    var svg = document.getElementById('btc-chart');
+    svg.innerHTML = '';
+
+    var maLine = document.createElementNS(svgns, 'polyline');
+    maLine.setAttribute('points', maPts);
+    maLine.setAttribute('fill', 'none');
+    maLine.setAttribute('stroke', '#C7C7CC');
+    maLine.setAttribute('stroke-width', '2');
+    maLine.setAttribute('stroke-dasharray', '5,5');
+    svg.appendChild(maLine);
+
+    var priceLine = document.createElementNS(svgns, 'polyline');
+    priceLine.setAttribute('points', pricePts);
+    priceLine.setAttribute('fill', 'none');
+    priceLine.setAttribute('stroke', '#5E5CE6');
+    priceLine.setAttribute('stroke-width', '2.5');
+    priceLine.setAttribute('stroke-linecap', 'round');
+    priceLine.setAttribute('stroke-linejoin', 'round');
+    svg.appendChild(priceLine);
+
+    // past buy markers
+    [22, 34].forEach(function(i){
+      var c = document.createElementNS(svgns, 'circle');
+      c.setAttribute('cx', x(i)); c.setAttribute('cy', y(prices[i]));
+      c.setAttribute('r', 5); c.setAttribute('fill', '#5E5CE6');
+      c.setAttribute('stroke', '#fff'); c.setAttribute('stroke-width', '2');
+      svg.appendChild(c);
+    });
+
+    // pending marker (today)
+    var pi = prices.length - 1;
+    var pending = document.createElementNS(svgns, 'circle');
+    pending.setAttribute('cx', x(pi)); pending.setAttribute('cy', y(prices[pi]));
+    pending.setAttribute('r', 6); pending.setAttribute('fill', '#fff');
+    pending.setAttribute('stroke', '#FF9F0A'); pending.setAttribute('stroke-width', '3');
+    svg.appendChild(pending);
+  }
+</script>
+
+</body>
+</html>

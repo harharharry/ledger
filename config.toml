@@ -1,0 +1,48 @@
+# Ledger configuration — every tunable lives here, never in code (CLAUDE.md).
+# All *_pct values are human-readable percentages: 0.40 means 0.40%, 60 means 60%.
+
+[portfolio]
+starting_capital_gbp = 500.00
+allocation_crypto_pct = 60
+allocation_stocks_pct = 40
+drift_threshold_pts = 10
+
+[trading]
+per_trade_cap_pct_of_sleeve = 20
+min_trade_gbp = 50.00
+max_proposals_per_day = 1
+max_proposals_per_week = 5
+
+[fx]
+# One-way GBP<->USD conversion cost applied to every trade on a non-GBP venue.
+# Estimate based on Wise/bank retail FX margin; revisit when Phase 2 picks a real rail.
+conversion_cost_pct = 0.50
+
+[runtime]
+db_path = "ledger.db"
+kill_switch_path = "KILL_SWITCH"
+
+# Venue fee schedules verified 2026-07-03 (see NOTES.md for sources).
+# spread_pct is the estimated FULL bid-ask spread; the fill engine charges half per side.
+
+[venues.kraken]
+quote_currency = "GBP"
+maker_fee_pct = 0.25
+taker_fee_pct = 0.40
+spread_pct = 0.10
+sell_regulatory_fee_pct = 0.0
+
+[venues.coinbase]
+quote_currency = "GBP"
+maker_fee_pct = 0.40
+taker_fee_pct = 0.60
+spread_pct = 0.15
+sell_regulatory_fee_pct = 0.0
+
+[venues.alpaca]
+quote_currency = "USD"
+maker_fee_pct = 0.0
+taker_fee_pct = 0.0
+spread_pct = 0.05
+# SEC section 31 fee on sale proceeds ($27.80 per $1M); FINRA TAF is negligible at this size.
+sell_regulatory_fee_pct = 0.00278
