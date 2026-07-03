@@ -48,6 +48,32 @@ def test_unknown_venue_fails_loudly(config):
         config.venue("binance")
 
 
+def test_assets_load_with_sleeves(config):
+    assert config.assets["BTC"].sleeve == "crypto"
+    assert config.assets["BTC"].coingecko_id == "bitcoin"
+    assert config.assets["BTC"].venue == "kraken"
+    assert config.assets["QQQ"].sleeve == "stocks"
+    assert [a.symbol for a in config.sleeve_assets("crypto")] == ["BTC"]
+
+
+def test_crypto_asset_requires_coingecko_id(tmp_path):
+    text = REAL_CONFIG.read_text().replace('coingecko_id = "bitcoin"\n', "")
+    p = tmp_path / "config.toml"
+    p.write_text(text)
+    with pytest.raises(ConfigError, match="coingecko_id"):
+        load_config(p)
+
+
+def test_asset_venue_must_exist(tmp_path):
+    text = REAL_CONFIG.read_text().replace(
+        '[assets.stocks.QQQ]\nvenue = "alpaca"', '[assets.stocks.QQQ]\nvenue = "etoro"'
+    )
+    p = tmp_path / "config.toml"
+    p.write_text(text)
+    with pytest.raises(ConfigError, match="etoro"):
+        load_config(p)
+
+
 def test_absurd_fee_rejected(tmp_path):
     text = REAL_CONFIG.read_text().replace("taker_fee_pct = 0.40", "taker_fee_pct = 40.0")
     p = tmp_path / "config.toml"

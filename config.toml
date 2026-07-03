@@ -22,6 +22,18 @@ conversion_cost_pct = 0.50
 db_path = "ledger.db"
 kill_switch_path = "KILL_SWITCH"
 
+# Tracked assets per sleeve. Each asset names its execution venue; crypto
+# assets also need their CoinGecko id for price data.
+
+[assets.crypto.BTC]
+coingecko_id = "bitcoin"
+venue = "kraken"
+
+# PLACEHOLDER — Harry to confirm the tech/AI ETF choice before Phase 1 day one;
+# the benchmark snapshot locks it in permanently.
+[assets.stocks.QQQ]
+venue = "alpaca"
+
 # Venue fee schedules verified 2026-07-03 (see NOTES.md for sources).
 # spread_pct is the estimated FULL bid-ask spread; the fill engine charges half per side.
 

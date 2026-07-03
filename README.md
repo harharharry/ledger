@@ -10,7 +10,7 @@ Decision log: `NOTES.md`.
 ## Status
 
 - [x] Milestone 1 — paper ledger + fee-realistic fill engine (fees, spread, FX) + tests
-- [ ] Milestone 2 — data ingestion (crypto + stocks)
+- [x] Milestone 2 — data ingestion (CoinGecko crypto + Alpaca stocks + ECB FX)
 - [ ] Milestone 3 — strategist modules
 - [ ] Milestone 4 — risk manager
 - [ ] Milestone 5 — orchestrator + scheduler + run logging
@@ -24,6 +24,9 @@ Decision log: `NOTES.md`.
 - `config.toml` — every tunable (allocation, caps, floors, venue fees). Config over code.
 - `ledger/` — the Python package: `money` (Decimal rules), `config`, `fill_engine`,
   `paper_ledger`, `kill_switch`
+- `ledger/data/` — price ingestion: `coingecko` (crypto, GBP), `alpaca` (stocks, USD,
+  needs `APCA_API_KEY_ID`/`APCA_API_SECRET_KEY` env vars), `fx` (GBPUSD via ECB).
+  Live check: `.venv/bin/python -m ledger.data.smoke`
 - `tests/` — pytest suite
 - `.claude/agents/` — build-time subagents (crypto-strategist, stocks-strategist,
   risk-manager, reporting). The *deployed* bot is deterministic Python; no LLM calls in the

@@ -57,18 +57,30 @@ class RuntimeConfig:
 
 
 @dataclass(frozen=True)
+class AssetConfig:
+    symbol: str
+    sleeve: str  # 'crypto' | 'stocks'
+    venue: str
+    coingecko_id: str | None = None  # required for crypto assets
+
+
+@dataclass(frozen=True)
 class Config:
     portfolio: PortfolioConfig
     trading: TradingConfig
     fx: FxConfig
     runtime: RuntimeConfig
     venues: dict[str, VenueConfig]
+    assets: dict[str, AssetConfig]
 
     def venue(self, name: str) -> VenueConfig:
         try:
             return self.venues[name]
         except KeyError:
             raise ConfigError(f"unknown venue {name!r}; configured: {sorted(self.venues)}")
+
+    def sleeve_assets(self, sleeve: str) -> list[AssetConfig]:
+        return [a for a in self.assets.values() if a.sleeve == sleeve]
 
 
 def _require(section: dict, key: str, where: str) -> object:
@@ -152,4 +164,30 @@ def load_config(path: str | Path) -> Config:
     if not venues:
         raise ConfigError("at least one [venues.*] table is required")
 
-    return Config(portfolio=portfolio, trading=trading, fx=fx, runtime=runtime, venues=venues)
+    asset_tables = _section(data, "assets")
+    assets: dict[str, AssetConfig] = {}
+    for sleeve in ("crypto", "stocks"):
+        sleeve_table = asset_tables.get(sleeve)
+        if not sleeve_table:
+            raise ConfigError(f"[assets.{sleeve}] must define at least one asset")
+        for symbol, fields in sleeve_table.items():
+            where = f"assets.{sleeve}.{symbol}"
+            if symbol in assets:
+                raise ConfigError(f"[{where}] duplicate asset symbol {symbol!r}")
+            venue_name = str(_require(fields, "venue", where))
+            if venue_name not in venues:
+                raise ConfigError(f"[{where}] venue {venue_name!r} is not configured")
+            coingecko_id = fields.get("coingecko_id")
+            if sleeve == "crypto" and not coingecko_id:
+                raise ConfigError(f"[{where}] coingecko_id is required for crypto assets")
+            assets[symbol] = AssetConfig(
+                symbol=symbol,
+                sleeve=sleeve,
+                venue=venue_name,
+                coingecko_id=str(coingecko_id) if coingecko_id else None,
+            )
+
+    return Config(
+        portfolio=portfolio, trading=trading, fx=fx, runtime=runtime,
+        venues=venues, assets=assets,
+    )

@@ -57,6 +57,31 @@ section. Spec is `trading-assistant-spec.md` v1.1; standing rules in `CLAUDE.md`
   tomllib, decimal). Dev deps: pytest, in `.venv/`. Run tests with
   `.venv/bin/python -m pytest`.
 
+## 2026-07-03 — Milestone 2: data ingestion
+
+- **Crypto prices: CoinGecko** public API (chose it over CCXT: no dependency, no exchange
+  account, GBP quotes directly). Optional demo key via env `COINGECKO_API_KEY` if rate
+  limits ever bite; not needed at one run/day. Parser normalises any granularity to one
+  close per UTC day (last point wins). Verified live 2026-07-03.
+- **Stocks prices: Alpaca** Market Data v2, free IEX feed, split-adjusted daily bars.
+  Keys from env `APCA_API_KEY_ID` / `APCA_API_SECRET_KEY`, fail-loudly. **Not yet verified
+  live — needs Harry's Alpaca account keys (create trade-only, withdrawals disabled).**
+- **FX: Frankfurter** (`api.frankfurter.dev`, ECB reference rates, free, no key) for GBPUSD.
+  One rate per business day matches the daily cadence. Note: the spot *rate* comes from
+  here; the conversion *cost* stays a config estimate. Cloudflare 403s the default Python
+  urllib User-Agent, so `data/http.py` always sends its own. Verified live 2026-07-03
+  (GBPUSD 1.3306).
+- **HTTP:** stdlib urllib only (still zero runtime dependencies). JSON numbers parse
+  straight to Decimal. Retries with backoff on 429/5xx/network errors; other statuses fail
+  loudly. Error messages never include headers (keys live there).
+- **History window: 100 days** — enough for the 50-day MA plus RSI(14) with slack.
+- **Assets moved into config** (`[assets.crypto.BTC]`, `[assets.stocks.QQQ]`). QQQ is a
+  **placeholder** — Harry must confirm the tech/AI ETF before Phase 1 day one, because the
+  benchmark snapshot locks it in.
+- **Tests:** parsers are unit-tested offline with fixture payloads; live API tests exist in
+  `tests/test_data_integration.py` behind `RUN_INTEGRATION=1`. Manual check:
+  `.venv/bin/python -m ledger.data.smoke`.
+
 ### Numbers worth remembering
 
 - Flat-price round trip on Kraken at £100: **~£0.90 lost** (0.4% + 0.4% taker + 0.1% spread).
