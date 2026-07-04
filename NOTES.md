@@ -246,6 +246,30 @@ section. Spec is `trading-assistant-spec.md` v1.1; standing rules in `CLAUDE.md`
   already; at his size an ETF (EQQQ core, semis ETF for AI sharp end) beats stock-picking on
   mechanics; individual-name shortlist if picking: NVDA, MSFT, GOOGL.
 
+## 2026-07-04 — Milestone 8: Phase 1 deployment (GitHub Actions)
+
+- **Harry delegated the hosting choice; recommendation was GitHub Actions** over Mac
+  cron/launchd: a sleeping laptop punches holes in the observation record, Actions is free
+  at one run/day, and workflow failure emails give the §14.3 missed-run alerting for free.
+  Spec §14.3 listed Actions as an accepted option. Phase 2 revisits this (real Kraken keys
+  want IP restriction, which Actions' dynamic IPs can't do — a Pi/VPS decision for then).
+- **ledger.db is tracked in git** and committed back by each run ("data in repo" pattern):
+  the run history is auditable, the Mac is a pure viewing surface (`git pull` + dashboard),
+  and daily commits keep the scheduled workflow from GitHub's 60-day auto-disable.
+  Consequence: don't run the orchestrator locally during Phase 1 — the runner owns the
+  ledger. The commit step runs even after a failed run so the failure outcome row lands in
+  the repo.
+- **Kill switch semantics changed with remote deployment:** primary pause = disable the
+  workflow in the Actions UI; secondary = commit+push a KILL_SWITCH file. The local
+  dashboard toggle only affects locally started runs — documented in README.
+- `tests.yml` runs the suite on every push (also proves the code on Python 3.12, the CI
+  runtime; dev machine is 3.14).
+- Optional `COINGECKO_API_KEY` Actions secret raises CoinGecko rate limits from shared CI
+  IPs; the client already sends it when present. If runs start failing with HTTP 429,
+  create the free demo key.
+- **Phase 1 started 2026-07-04** with the first workflow dispatch: day-one benchmark
+  snapshot locks the five-asset basket at that morning's prices.
+
 ### Numbers worth remembering
 
 - Flat-price round trip on Kraken at £100: **~£0.90 lost** (0.4% + 0.4% taker + 0.1% spread).

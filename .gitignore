@@ -3,7 +3,8 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .DS_Store
-ledger.db
-KILL_SWITCH
 .claude/settings.local.json
 dashboard/data.json
+# NOTE: ledger.db is deliberately TRACKED — the GitHub Actions daily run
+# commits it back as the system of record. KILL_SWITCH is also committable
+# (pushing it pauses the deployed bot). Don't re-ignore either.

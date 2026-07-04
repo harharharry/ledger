@@ -20,7 +20,7 @@ Decision log: `NOTES.md`.
 - [x] Milestone 5 — orchestrator + scheduler + run logging (`python -m ledger.orchestrator`, cron `30 7 * * *`)
 - [x] Milestone 6 — reporting + weekly summary (`python -m ledger.reporting`; deterministic, benchmark-first)
 - [x] Milestone 7 — dashboard (`python -m ledger.dashboard` → http://127.0.0.1:8420; no-build React)
-- [ ] Milestone 8 — Phase 1 observation run (4–6 weeks minimum)
+- [x] Milestone 8 — Phase 1 observation run: GitHub Actions daily at 07:30 UTC, ledger committed back to the repo (4–6 weeks minimum)
 - [ ] Milestone 9 — Phase 2 (propose-and-approve; nothing executes without human approval)
 
 ## Layout
@@ -52,10 +52,26 @@ python3 -m venv .venv && .venv/bin/pip install pytest   # once
 .venv/bin/python -m pytest
 ```
 
+## Deployment (Phase 1)
+
+The daily run lives in GitHub Actions (`.github/workflows/daily-run.yml`, 07:30 UTC).
+Each run commits `ledger.db` back to the repo — the ledger's history *is* the git history.
+A failed run fails the workflow, which emails Harry (plus the failure is logged in the run
+table). To view locally: `git pull`, then `python -m ledger.dashboard`.
+
+Optional: a free CoinGecko demo API key in the `COINGECKO_API_KEY` Actions secret raises
+rate limits from shared CI IPs.
+
 ## Kill switch
 
-`touch KILL_SWITCH` in the repo root pauses all bot activity; delete the file to resume.
-Checked before any action, every run.
+The bot runs remotely, so there are two ways to pause it:
+
+1. **Fastest:** GitHub → Actions → daily-run → "Disable workflow".
+2. `touch KILL_SWITCH && git add KILL_SWITCH && git commit -m "pause" && git push` — the
+   orchestrator checks the file before any action, every run. Delete + push to resume.
+
+A local `KILL_SWITCH` file (or the dashboard toggle) only pauses *locally started* runs —
+it does not reach the deployed bot until pushed.
 
 ## Credentials (Phase 2, not needed yet)
 
