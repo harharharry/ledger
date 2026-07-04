@@ -1,15 +1,15 @@
-"""Shared strategy signals — the whole of strategy v1, used by both sleeves.
+"""Strategy signals — the whole of strategy v1, applied per asset.
 
 Spec §6, kept deliberately boring: a moving-average trend filter gates
 DCA-style accumulation (no buying into a downtrend), and RSI tilts the size —
 bigger on oversold dips within an uptrend, smaller when frothy. Buys only.
 
-The sleeve wrappers (crypto.py, stocks.py) only validate which asset they are
-looking at and delegate here, so the two sleeves can never drift apart on
-signal maths. Everything is deterministic Decimal arithmetic: no floats, no
-randomness, no network, no LLMs (CLAUDE.md non-negotiable 4). All tunables
-come from config. Output is a Proposal — this module never touches the
-ledger and never executes anything.
+v1.2: the universe is multiple crypto assets, each evaluated independently by
+this same function — the orchestrator decides which asset gets the daily slot
+(most under its target weight goes first). Everything is deterministic Decimal
+arithmetic: no floats, no randomness, no network, no LLMs (CLAUDE.md
+non-negotiable 4). All tunables come from config. Output is a Proposal — this
+module never touches the ledger and never executes anything.
 """
 
 from __future__ import annotations
@@ -86,6 +86,10 @@ def propose_accumulation(
     Raises StrategyError on thin data — guessing on a partial history would
     make the trend filter meaningless, so we fail loudly instead.
     """
+    if series.symbol != asset.symbol:
+        raise StrategyError(
+            f"series is for {series.symbol!r} but asset config is {asset.symbol!r}"
+        )
     strat = config.strategy
     if len(series) < strat.ma_days + 1:
         raise StrategyError(
@@ -134,7 +138,6 @@ def propose_accumulation(
         f"MA {symbol}{_two_dp(moving_average)} (uptrend); {rsi_note}{cash_note}."
     )
     return Proposal(
-        sleeve=asset.sleeve,
         asset=asset.symbol,
         venue=asset.venue,
         side="buy",

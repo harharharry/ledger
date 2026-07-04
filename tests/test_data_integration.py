@@ -9,7 +9,7 @@ from decimal import Decimal
 
 import pytest
 
-from ledger.data import alpaca, coingecko, fx
+from ledger.data import coingecko, fx
 
 pytestmark = pytest.mark.skipif(
     not os.environ.get("RUN_INTEGRATION"),
@@ -29,11 +29,8 @@ def test_frankfurter_live():
     assert Decimal("1.0") < rate < Decimal("2.0")
 
 
-@pytest.mark.skipif(
-    not (os.environ.get(alpaca.KEY_ENV) and os.environ.get(alpaca.SECRET_ENV)),
-    reason="Alpaca credentials not set",
-)
-def test_alpaca_live():
-    series = alpaca.fetch_daily_closes("QQQ", days=10)
+def test_coingecko_usd_pair_live():
+    # HYPE trades on Kraken's USD pair, so its series is fetched in USD
+    series = coingecko.fetch_daily_closes("HYPE", "hyperliquid", days=10, vs_currency="usd")
     assert series.currency == "USD"
-    assert len(series) >= 5
+    assert len(series) >= 8

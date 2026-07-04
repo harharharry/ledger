@@ -9,7 +9,7 @@ from ledger.fill_engine import Order, simulate_fill
 from ledger.paper_ledger import PaperLedger
 
 # reuse the deterministic series builders from the orchestrator tests
-from test_orchestrator import TODAY, downtrend, uptrend
+from test_orchestrator import TODAY, series_map, uptrend
 
 D = Decimal
 
@@ -23,16 +23,19 @@ def led(tmp_path):
 def btc_buy(config, notional="60.00"):
     series = uptrend("BTC")
     order = Order(
-        sleeve="crypto", venue="kraken", asset="BTC", side="buy",
+        venue="kraken", asset="BTC", side="buy",
         mid_price=series.latest.close, notional_gbp=D(notional),
     )
-    return simulate_fill(order, config.venue("kraken"), config.fx.conversion_cost_rate)
+    return simulate_fill(
+        order, config.venue("kraken"), config.asset("BTC"),
+        config.fx.conversion_cost_rate,
+    )
 
 
 def build(config, led, **kwargs):
     return build_dashboard_data(
         led, config,
-        series_by_symbol={"BTC": uptrend("BTC"), "QQQ": downtrend("QQQ", "USD")},
+        series_by_symbol=series_map(config, up={"BTC"}),
         fx_rate=D("1.25"),
         **kwargs,
     )
@@ -54,28 +57,30 @@ def test_opened_with_trade_hero_and_allocation(config, led):
     led.record_fill(fill, "k1", ts=f"{TODAY}T08:05:00+00:00", run_date=TODAY)
     data = build(config, led)
 
-    # hero: cash + BTC at latest close; position was bought at the same close,
-    # so value = 500 - friction
     cash = D("500.00") + fill.cash_delta_gbp
     holding = fill.quantity * uptrend("BTC").latest.close
     expected_total = cash + holding
-    assert data["hero"]["total_balance_gbp"] == str(
-        expected_total.quantize(D("0.01"))
-    )
-    assert data["allocation"]["actual"]["crypto"] == 100.0
+    assert data["hero"]["total_balance_gbp"] == str(expected_total.quantize(D("0.01")))
+    # all invested value is BTC; the other four assets are at 0%
+    assert data["allocation"]["actual"]["BTC"] == 100.0
+    assert data["allocation"]["actual"]["ETH"] == 0.0
+    assert data["allocation"]["target"]["BTC"] == 40.0
     assert data["allocation"]["cash_gbp"] == str(cash.quantize(D("0.01")))
     assert data["opened"] == str(TODAY)
 
 
 def test_benchmark_pct_math(config, led):
     led.open(D("500.00"), ts=f"{TODAY}T08:00:00+00:00")
-    # snapshot at half of today's closes: benchmark exactly doubles the
-    # allocated capital of both sleeves -> +100%
-    btc_now = uptrend("BTC").latest.close
-    qqq_now_gbp = downtrend("QQQ", "USD").latest.close / D("1.25")
+    # snapshot every asset at half of today's price: fee-free buy-and-hold
+    # of the whole basket exactly doubles -> +100%
+    series = series_map(config, up={"BTC"})
+    prices_now_gbp = {
+        sym: (s.latest.close if s.currency == "GBP" else s.latest.close / D("1.25"))
+        for sym, s in series.items()
+    }
     led.snapshot_benchmark(
         "phase1",
-        {"BTC": btc_now / 2, "QQQ": qqq_now_gbp / 2},
+        {sym: p / 2 for sym, p in prices_now_gbp.items()},
         snapshot_date=str(TODAY),
     )
     data = build(config, led)
@@ -89,25 +94,24 @@ def test_sparkline_reconstructs_history(config, led):
     led.record_fill(fill, "k1", ts=f"{TODAY}T08:05:00+00:00", run_date=TODAY)
     data = build(config, led)
     spark = data["hero"]["sparkline"]
-    # opening day is the only spine day on/after opening in these series
-    assert len(spark) == 1
+    assert len(spark) == 1  # opening day is the only spine day on/after opening
     assert spark[0]["date"] == str(TODAY)
     assert spark[0]["value_gbp"] == data["hero"]["total_balance_gbp"]
 
 
-def test_asset_block_signals(config, led):
+def test_asset_blocks_cover_universe_with_signals(config, led):
     data = build(config, led)
+    assert set(data["assets"]) == set(config.assets)
     btc = data["assets"]["BTC"]
     assert btc["trend"] == "bullish"
-    assert btc["sessions_above_ma"] >= 1
+    assert btc["target_weight_pct"] == 40.0
     assert 0 < btc["rsi"] < 100
-    assert btc["rsi_oversold"] == 40.0
-    # chart has an MA value from day 50 onward, null before
     assert btc["chart"][10]["ma"] is None
     assert btc["chart"][-1]["ma"] is not None
-    qqq = data["assets"]["QQQ"]
-    assert qqq["trend"] == "bearish"
-    assert qqq["sessions_above_ma"] == 0
+    eth = data["assets"]["ETH"]
+    assert eth["trend"] == "bearish"
+    hype = data["assets"]["HYPE"]
+    assert hype["currency"] == "USD"
 
 
 def test_activity_includes_trades_and_bad_runs(config, led):
@@ -123,7 +127,7 @@ def test_activity_includes_trades_and_bad_runs(config, led):
     assert "FX feed down" in run_item["rationale"]
     trade_item = next(a for a in data["activity"] if a["kind"] == "trade")
     assert trade_item["title"] == "Bought BTC"
-    assert trade_item["rationale"] == ""  # none passed on record_fill
+    assert trade_item["asset"] == "BTC"
 
 
 def test_output_is_json_serializable_and_writes(config, led, tmp_path):
@@ -134,5 +138,4 @@ def test_output_is_json_serializable_and_writes(config, led, tmp_path):
     round_tripped = json.loads(out.read_text())
     assert round_tripped["kill_switch_engaged"] is True
     assert round_tripped["mode"] == "paper"
-    # money is strings everywhere, never floats
     assert isinstance(round_tripped["hero"]["total_balance_gbp"], str)

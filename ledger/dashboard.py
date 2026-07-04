@@ -22,8 +22,7 @@ from pathlib import Path
 from . import kill_switch
 from .config import load_config
 from .dashboard_data import build_dashboard_data, write_dashboard_data
-from .data import alpaca, coingecko, fx
-from .data.alpaca import MissingCredentialsError
+from .data import coingecko, fx
 from .paper_ledger import PaperLedger
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,13 +32,11 @@ DASHBOARD_DIR = ROOT / "dashboard"
 def export(config, ks_path: Path) -> None:
     fx_rate = fx.fetch_gbp_usd()
     series = {}
-    for asset in config.sleeve_assets("crypto"):
-        series[asset.symbol] = coingecko.fetch_daily_closes(asset.symbol, asset.coingecko_id)
-    for asset in config.sleeve_assets("stocks"):
-        try:
-            series[asset.symbol] = alpaca.fetch_daily_closes(asset.symbol)
-        except MissingCredentialsError as e:
-            print(f"WARNING: {asset.symbol} omitted — {e}", file=sys.stderr)
+    for asset in config.assets.values():
+        series[asset.symbol] = coingecko.fetch_daily_closes(
+            asset.symbol, asset.coingecko_id,
+            vs_currency=asset.quote_currency.lower(),
+        )
     with PaperLedger(ROOT / config.runtime.db_path) as led:
         data = build_dashboard_data(
             led, config, series, fx_rate,

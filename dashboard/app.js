@@ -8,8 +8,14 @@ import htm from "htm";
 
 const html = htm.bind(createElement);
 
-const SLEEVE_COLOR = { crypto: "var(--indigo)", stocks: "var(--teal)" };
-const ASSET_NAMES = { BTC: "Bitcoin", QQQ: "Invesco QQQ" };
+const ASSET_COLORS = {
+  BTC: "var(--indigo)", ETH: "var(--teal)", SOL: "var(--blue)",
+  SUI: "var(--green)", HYPE: "var(--amber)",
+};
+const assetColor = (sym) => ASSET_COLORS[sym] || "#C7C7CC";
+const ASSET_NAMES = {
+  BTC: "Bitcoin", ETH: "Ethereum", SOL: "Solana", SUI: "Sui", HYPE: "Hyperliquid",
+};
 
 function fmtGBP(s) {
   if (s === null || s === undefined) return "—";
@@ -62,55 +68,32 @@ function Hero({ hero, opened }) {
   </section>`;
 }
 
-function Ring({ allocation }) {
-  const actual = allocation.actual;
-  const crypto = actual.crypto ?? allocation.target.crypto;
-  const stocks = actual.stocks ?? allocation.target.stocks;
-  const c1 = 2 * Math.PI * 52, c2 = 2 * Math.PI * 38;
-  return html`<svg width="120" height="120" viewBox="0 0 120 120" role="img"
-    aria-label="Allocation rings: crypto ${crypto}%, stocks ${stocks}%">
-    <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(94,92,230,0.15)" stroke-width="10" />
-    <circle cx="60" cy="60" r="52" fill="none" stroke="var(--indigo)" stroke-width="10"
-      stroke-dasharray=${c1} stroke-dashoffset=${c1 * (1 - crypto / 100)}
-      stroke-linecap="round" transform="rotate(-90 60 60)" />
-    <circle cx="60" cy="60" r="38" fill="none" stroke="rgba(48,176,199,0.15)" stroke-width="10" />
-    <circle cx="60" cy="60" r="38" fill="none" stroke="var(--teal)" stroke-width="10"
-      stroke-dasharray=${c2} stroke-dashoffset=${c2 * (1 - stocks / 100)}
-      stroke-linecap="round" transform="rotate(-90 60 60)" />
-  </svg>`;
-}
-
-function AllocationCard({ allocation, onSelectAsset, assets }) {
+function AllocationCard({ allocation, onSelectAsset }) {
   const { target, actual } = allocation;
-  const tilt =
-    actual.crypto === null ? "not yet invested" :
-    Math.abs(actual.crypto - target.crypto) < 0.5 ? "on target" :
-    `crypto ${actual.crypto > target.crypto ? "tilted +" : "tilted −"}${Math.abs(actual.crypto - target.crypto).toFixed(0)}pts`;
-  const sleeves = [
-    { key: "crypto", name: "Crypto", color: "var(--indigo)" },
-    { key: "stocks", name: "Stocks / ETFs", color: "var(--teal)" },
-  ];
+  const symbols = Object.keys(target);
+  const invested = actual[symbols[0]] !== null;
   return html`<div class="card">
     <h3>Allocation</h3>
-    <p class="card-sub">Target ${target.crypto.toFixed(0)} / ${target.stocks.toFixed(0)} · ${tilt}</p>
-    <div class="rings-row">
-      <${Ring} allocation=${allocation} />
-      <div class="ring-legend">
-        ${sleeves.map((s) => {
-          const symbol = Object.keys(assets).find((k) => assets[k].sleeve === s.key);
-          return html`<div key=${s.key}
-            class=${"legend-item" + (symbol ? " clickable" : "")}
-            onClick=${() => symbol && onSelectAsset(symbol)}>
-            <span class="swatch" style=${{ background: s.color }}></span>
-            <div class="legend-text">
-              <span class="name">${s.name}${symbol ? " →" : ""}</span>
-              <span class="detail tabular">
-                ${actual[s.key] === null ? "0" : actual[s.key].toFixed(0)}% actual · ${target[s.key].toFixed(0)}% target
-              </span>
-            </div>
-          </div>`;
-        })}
-      </div>
+    <p class="card-sub">
+      Actual vs target weight · ${invested ? `£${allocation.invested_gbp} invested` : "not yet invested"}
+      · cash £${allocation.cash_gbp}
+    </p>
+    <div class="bench-row">
+      ${symbols.map((sym) => html`<div class="bench-item legend-item clickable" key=${sym}
+        style=${{ display: "block" }} onClick=${() => onSelectAsset(sym)}>
+        <div class="top">
+          <span class="name">
+            <span class="swatch" style=${{ background: assetColor(sym), display: "inline-block", marginRight: "8px" }}></span>${sym} →
+          </span>
+          <span class="val tabular" style=${{ color: "var(--ink-soft)" }}>
+            ${actual[sym] === null ? "0" : actual[sym].toFixed(0)}% · target ${target[sym].toFixed(0)}%
+          </span>
+        </div>
+        <div class="bar-track" style=${{ position: "relative" }}>
+          <div class="bar-fill" style=${{ width: Math.min(actual[sym] ?? 0, 100) + "%", background: assetColor(sym) }}></div>
+          <div style=${{ position: "absolute", top: "-2px", bottom: "-2px", left: target[sym] + "%", width: "2px", background: "var(--ink)", opacity: 0.35, borderRadius: "1px" }}></div>
+        </div>
+      </div>`)}
     </div>
   </div>`;
 }
@@ -173,9 +156,9 @@ function ActivityCard({ activity }) {
       ${activity.length === 0 && html`<p class="empty-note">Nothing yet — activity appears after the first daily run.</p>`}
       ${activity.map((a, i) => {
         const iconBg = a.kind === "trade"
-          ? SLEEVE_COLOR[a.sleeve]
+          ? assetColor(a.asset)
           : a.title === "Run failed" ? "var(--red)" : "#C7C7CC";
-        const initial = a.kind === "trade" ? a.title.slice(-3, -2) : a.title === "Run failed" ? "!" : "–";
+        const initial = a.kind === "trade" ? a.asset[0] : a.title === "Run failed" ? "!" : "–";
         return html`<div key=${i} class=${"activity-item" + (open === i ? " open" : "")}
           onClick=${() => setOpen(open === i ? null : i)}>
           <div class="a-icon" style=${{ background: iconBg }}>${initial}</div>
@@ -228,19 +211,20 @@ function PriceChart({ asset }) {
   const markers = asset.chart
     .map((c, i) => (buyDates.has(c.date) ? { i, v: closes[i] } : null))
     .filter(Boolean);
+  const color = assetColor(asset.symbol);
   return html`<svg class="price-chart" viewBox="0 0 600 220" preserveAspectRatio="none"
     role="img" aria-label="${asset.symbol} price and 50-day moving average">
     <polyline points=${maPts} fill="none" stroke="#C7C7CC" stroke-width="2" stroke-dasharray="5,5" />
-    <polyline points=${pricePts} fill="none" stroke="var(--indigo)" stroke-width="2.5"
+    <polyline points=${pricePts} fill="none" stroke=${color} stroke-width="2.5"
       stroke-linecap="round" stroke-linejoin="round" />
     ${markers.map((m) => html`<circle key=${m.i} cx=${x(m.i)} cy=${y(m.v)} r="5"
-      fill="#5E5CE6" stroke="#fff" stroke-width="2" />`)}
+      fill=${color} stroke="#fff" stroke-width="2" />`)}
   </svg>`;
 }
 
 function AssetDetail({ asset }) {
   const name = ASSET_NAMES[asset.symbol] || asset.symbol;
-  const color = SLEEVE_COLOR[asset.sleeve];
+  const color = assetColor(asset.symbol);
   const ccy = asset.currency === "GBP" ? "£" : "$";
   const bullish = asset.trend === "bullish";
   const rsi = asset.rsi;
@@ -364,7 +348,7 @@ function App() {
       <button class=${view === "overview" ? "active" : ""} onClick=${() => setView("overview")}>Overview</button>
       ${assetSymbols.map((sym) => html`<button key=${sym}
         class=${view === sym ? "active" : ""} onClick=${() => setView(sym)}>
-        ${(ASSET_NAMES[sym] || sym)} · Technical</button>`)}
+        ${sym}</button>`)}
     </div>
 
     <main>

@@ -213,6 +213,39 @@ section. Spec is `trading-assistant-spec.md` v1.1; standing rules in `CLAUDE.md`
   (deliberate — no toolchain) and was verified in-browser (views, live data, kill-switch
   round trip, console clean).
 
+## 2026-07-03 — v1.2: crypto-only, five-asset universe (Harry's revision)
+
+- **Scope pivot, Harry's decision:** stocks sleeve dropped entirely (his stocks live in
+  Trading212 as separate long-term investing; wiring a second execution platform for a ~£200
+  sleeve was the wobbliest Phase 2 problem). Alpaca client and stocks-strategist agent
+  retired. One data API (CoinGecko), one Phase 2 venue (Kraken).
+- **Universe (Harry chose "core 5"):** BTC 40 / ETH 25 / SOL 15 / SUI 10 / HYPE 10, per-asset
+  target weights in config replacing the 60/40 sleeves. Kraken listings verified 2026-07-03:
+  BTC/ETH/SOL/SUI have GBP pairs (no FX); HYPE is USD-quoted (listed on Kraken 2026-01-28) so
+  it carries the 0.50% FX cost. Aster excluded (not on Kraken — unexecutable in Phase 2);
+  ONDO left out but is a config-edit away (USD pair exists).
+- **Why only five:** £500 ÷ £50 floor = 10 lots ever; beyond ~5 assets every position is a
+  single lot and the observation run is noise. Satellite spreads (SUI 0.40%, HYPE 0.30% vs
+  BTC 0.10%) are per-pair config now — the fill engine charges pair-level spreads, venue-level
+  fees.
+- **Structural changes:** sleeve concept removed end to end (schema, Proposal, risk,
+  reporting, dashboard). Per-asset cap = max(20% of asset allocation, £50 floor) — at v1.2
+  weights the floor is the binding cap for everything except a grown BTC position. Asset
+  ordering: most-under-target with an open trend gate claims the 1/day slot.
+- **Affordability vs sizing separation (found via test):** the strategy's cash cap now checks
+  TOTAL cash (its only job is preventing overdraw; 1 trade/day makes overdraw impossible),
+  not the asset's target slice — a 10% satellite's slice (£50) can never cover floor + fees,
+  which would have deadlocked SUI/HYPE forever. Sizing discipline belongs to the risk cap.
+- **Fetch convention:** each asset's series is fetched in its PAIR's quote currency (HYPE in
+  USD), so paper fills execute in the currency the real Kraken pair trades.
+- **Benchmark** generalises unchanged: day-one snapshot of all five, buy-and-hold at target
+  weights, before costs.
+- Coordinated cross-module schema change, done in the main session (module ownership resumes
+  for maintenance). CLAUDE.md updated to v1.2; spec v1.1 remains as history — CLAUDE.md wins.
+- **Stocks advice given to Harry for Trading212 (not the bot):** Mag 7 is ~35% of the S&P
+  already; at his size an ETF (EQQQ core, semis ETF for AI sharp end) beats stock-picking on
+  mechanics; individual-name shortlist if picking: NVDA, MSFT, GOOGL.
+
 ### Numbers worth remembering
 
 - Flat-price round trip on Kraken at £100: **~£0.90 lost** (0.4% + 0.4% taker + 0.1% spread).

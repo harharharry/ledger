@@ -35,7 +35,6 @@ CREATE TABLE IF NOT EXISTS trades (
     trade_key TEXT NOT NULL UNIQUE,
     run_date TEXT NOT NULL,
     ts TEXT NOT NULL,
-    sleeve TEXT NOT NULL CHECK (sleeve IN ('crypto', 'stocks')),
     venue TEXT NOT NULL,
     asset TEXT NOT NULL,
     side TEXT NOT NULL CHECK (side IN ('buy', 'sell')),
@@ -62,7 +61,6 @@ CREATE TABLE IF NOT EXISTS cash_events (
 
 CREATE TABLE IF NOT EXISTS positions (
     asset TEXT PRIMARY KEY,
-    sleeve TEXT NOT NULL,
     quantity TEXT NOT NULL,
     book_cost_gbp TEXT NOT NULL
 );
@@ -106,7 +104,6 @@ class DuplicateTradeError(LedgerError):
 @dataclass(frozen=True)
 class Position:
     asset: str
-    sleeve: str
     quantity: Decimal
     book_cost_gbp: Decimal
 
@@ -183,7 +180,6 @@ class PaperLedger:
             return None
         return Position(
             asset=row["asset"],
-            sleeve=row["sleeve"],
             quantity=to_decimal(row["quantity"]),
             book_cost_gbp=to_decimal(row["book_cost_gbp"]),
         )
@@ -223,10 +219,6 @@ class PaperLedger:
                 raise InsufficientCashError(
                     f"buy needs £{cost} but cash is £{balance}"
                 )
-            if pos is not None and pos.sleeve != fill.sleeve:
-                raise LedgerError(
-                    f"{fill.asset} already held in sleeve {pos.sleeve!r}"
-                )
             new_qty = (pos.quantity if pos else Decimal("0")) + fill.quantity
             new_cost = (pos.book_cost_gbp if pos else Decimal("0")) + cost
         else:
@@ -246,12 +238,12 @@ class PaperLedger:
         run_date = str(run_date) if run_date is not None else ts[:10]
         with self._conn:
             cur = self._conn.execute(
-                "INSERT INTO trades (trade_key, run_date, ts, sleeve, venue, asset, "
+                "INSERT INTO trades (trade_key, run_date, ts, venue, asset, "
                 "side, quantity, exec_price, quote_currency, fx_rate, gross_gbp, "
                 "fee_gbp, spread_cost_gbp, fx_cost_gbp, cash_delta_gbp, rationale) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
-                    trade_key, run_date, ts, fill.sleeve, fill.venue, fill.asset, fill.side,
+                    trade_key, run_date, ts, fill.venue, fill.asset, fill.side,
                     str(fill.quantity), str(fill.exec_price), fill.quote_currency,
                     str(fill.fx_rate), str(fill.gross_gbp), str(fill.fee_gbp),
                     str(fill.spread_cost_gbp), str(fill.fx_cost_gbp),
@@ -265,11 +257,11 @@ class PaperLedger:
                 (ts, str(fill.cash_delta_gbp), trade_id),
             )
             self._conn.execute(
-                "INSERT INTO positions (asset, sleeve, quantity, book_cost_gbp) "
-                "VALUES (?, ?, ?, ?) "
+                "INSERT INTO positions (asset, quantity, book_cost_gbp) "
+                "VALUES (?, ?, ?) "
                 "ON CONFLICT (asset) DO UPDATE SET quantity = ?, book_cost_gbp = ?",
                 (
-                    fill.asset, fill.sleeve, str(new_qty), str(gbp(new_cost)),
+                    fill.asset, str(new_qty), str(gbp(new_cost)),
                     str(new_qty), str(gbp(new_cost)),
                 ),
             )

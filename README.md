@@ -4,13 +4,17 @@ A personal, small-scale (£500) investment assistant: paper-trades autonomously 
 (Phase 1), then proposes real trades for human approval (Phase 2). It is a **discipline and
 learning tool, not a market-prediction system**.
 
+v1.2: crypto-only — five assets (BTC 40 / ETH 25 / SOL 15 / SUI 10 / HYPE 10, weights in
+config), CoinGecko data, Kraken fee model. Stocks stay in Trading212 as separate long-term
+investing.
+
 Design: `trading-assistant-spec.md` (v1.1). Standing build rules: `CLAUDE.md`.
 Decision log: `NOTES.md`.
 
 ## Status
 
 - [x] Milestone 1 — paper ledger + fee-realistic fill engine (fees, spread, FX) + tests
-- [x] Milestone 2 — data ingestion (CoinGecko crypto + Alpaca stocks + ECB FX)
+- [x] Milestone 2 — data ingestion (CoinGecko + ECB FX; Alpaca retired in v1.2)
 - [x] Milestone 3 — strategist modules (50-day MA gate + RSI-tilted DCA, buys only)
 - [x] Milestone 4 — risk manager (kill switch → cadence caps → 20% sleeve cap → fee floor; drift flags)
 - [x] Milestone 5 — orchestrator + scheduler + run logging (`python -m ledger.orchestrator`, cron `30 7 * * *`)
@@ -24,13 +28,12 @@ Decision log: `NOTES.md`.
 - `config.toml` — every tunable (allocation, caps, floors, venue fees). Config over code.
 - `ledger/` — the Python package: `money` (Decimal rules), `config`, `fill_engine`,
   `paper_ledger`, `kill_switch`
-- `ledger/data/` — price ingestion: `coingecko` (crypto, GBP), `alpaca` (stocks, USD,
-  needs `APCA_API_KEY_ID`/`APCA_API_SECRET_KEY` env vars), `fx` (GBPUSD via ECB).
+- `ledger/data/` — price ingestion: `coingecko` (each asset in its Kraken pair's quote
+  currency), `fx` (GBPUSD via ECB, for USD-quoted pairs like HYPE).
   Live check: `.venv/bin/python -m ledger.data.smoke`
 - `tests/` — pytest suite
-- `.claude/agents/` — build-time subagents (crypto-strategist, stocks-strategist,
-  risk-manager, reporting). The *deployed* bot is deterministic Python; no LLM calls in the
-  trading decision path.
+- `.claude/agents/` — build-time subagents (crypto-strategist, risk-manager, reporting).
+  The *deployed* bot is deterministic Python; no LLM calls in the trading decision path.
 
 ## Dashboard
 

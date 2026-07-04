@@ -18,8 +18,10 @@ WEEK_ENDING = dt.date(2026, 7, 3)  # a Friday
 WEEK_START = dt.date(2026, 6, 29)  # the Monday of that ISO week
 LAST_WEEK_FRIDAY = dt.date(2026, 6, 26)  # previous ISO week
 
-DAY_ONE_PRICES = {"BTC": D("50000"), "QQQ": D("400")}
-MOVED_PRICES = {"BTC": D("55000"), "QQQ": D("380")}
+# GBP prices per asset. Day-one snapshot at these; "moved" bumps only BTC +10%.
+DAY_ONE_PRICES = {"BTC": D("50000"), "ETH": D("2000"), "SOL": D("100"),
+                  "SUI": D("3"), "HYPE": D("30")}
+MOVED_PRICES = {**DAY_ONE_PRICES, "BTC": D("55000")}
 
 BTC_RATIONALE = "uptrend: price above the 50-day MA, RSI neutral — scheduled buy"
 
@@ -44,15 +46,16 @@ def buy_btc(led, config, run_date, rationale=BTC_RATIONALE):
     spread cost = 0.00119940 x 50000 x 0.0005 = £0.03; cash out = £60.24."""
     fill = simulate_fill(
         Order(
-            sleeve="crypto", venue="kraken", asset="BTC", side="buy",
+            venue="kraken", asset="BTC", side="buy",
             mid_price=D("50000"), notional_gbp=D("60"),
         ),
         config.venue("kraken"),
+        config.asset("BTC"),
         config.fx.conversion_cost_rate,
     )
     led.record_fill(
         fill,
-        trade_key=f"{run_date}:crypto:BTC:buy",
+        trade_key=f"{run_date}:BTC:buy",
         ts=f"{run_date}T08:00:00+00:00",
         rationale=rationale,
         run_date=run_date,
@@ -60,25 +63,26 @@ def buy_btc(led, config, run_date, rationale=BTC_RATIONALE):
     return fill
 
 
-def buy_qqq(led, config, run_date):
-    """£60 QQQ buy on Alpaca at mid $500, GBPUSD 1.25 — carries FX cost.
+def buy_hype(led, config, run_date):
+    """£60 HYPE buy on Kraken's USD pair at mid $30, GBPUSD 1.25 — carries FX.
 
-    Hand-derivation (alpaca: 0% fee, 0.05% full spread, 0.50% FX cost):
-    gross = £60.00; fee = £0.00; FX cost = £0.30; spread = £0.01;
-    cash out = £60.30."""
+    Hand-derivation (kraken 0.40% taker, 0.30% pair spread, 0.50% FX):
+    exec = 30 x 1.0015 = 30.045; qty = 75/30.045 = 2.49625562; gross = £60.00;
+    fee = £0.24; FX cost = £0.30; spread = £0.09; cash out = £60.54."""
     fill = simulate_fill(
         Order(
-            sleeve="stocks", venue="alpaca", asset="QQQ", side="buy",
-            mid_price=D("500"), fx_rate=D("1.25"), notional_gbp=D("60"),
+            venue="kraken", asset="HYPE", side="buy",
+            mid_price=D("30"), fx_rate=D("1.25"), notional_gbp=D("60"),
         ),
-        config.venue("alpaca"),
+        config.venue("kraken"),
+        config.asset("HYPE"),
         config.fx.conversion_cost_rate,
     )
     led.record_fill(
         fill,
-        trade_key=f"{run_date}:stocks:QQQ:buy",
+        trade_key=f"{run_date}:HYPE:buy",
         ts=f"{run_date}T08:00:00+00:00",
-        rationale="stocks sleeve accumulation",
+        rationale="satellite accumulation",
         run_date=run_date,
     )
     return fill
@@ -88,15 +92,15 @@ def buy_qqq(led, config, run_date):
 
 
 def test_happy_path_numbers(config, led):
-    """Open £500, snapshot BTC £50k / QQQ £400, buy £60 of BTC, then report
-    with BTC at £55k and QQQ at £380. Every figure hand-computed:
+    """Open £500, snapshot the five assets, buy £60 of BTC, then report with
+    BTC +10% and everything else flat. Every figure hand-computed:
 
       cash       = 500.00 - 60.24                       = £439.76
       holdings   = 0.00119940 x 55000                   = £65.97
       portfolio  = 439.76 + 65.97                       = £505.73
       pnl        = 505.73 - 500.00                      = +£5.73 (+1.15%)
-      benchmark  = (300/50000) x 55000 + (200/400) x 380
-                 = 0.006 x 55000 + 0.5 x 380 = 330 + 190 = £520.00
+      benchmark  = (200/50000)x55000 + 125 + 75 + 50 + 50
+                 = 220 + 300 flat                        = £520.00
       vs bench   = 505.73 - 520.00                      = -£14.27
     """
     open_and_snapshot(led, config)
@@ -115,7 +119,7 @@ def test_happy_path_numbers(config, led):
 
     assert len(report.holdings) == 1
     holding = report.holdings[0]
-    assert holding.asset == "BTC" and holding.sleeve == "crypto"
+    assert holding.asset == "BTC"
     assert holding.quantity == D("0.00119940")
     assert holding.market_value_gbp == D("65.97")
     assert holding.book_cost_gbp == D("60.24")  # all-in, fee included
@@ -165,13 +169,13 @@ def test_trailing_benchmark_is_said_plainly(config, led):
 
 
 def test_ahead_of_benchmark_wording(config, led):
-    # Prices collapse: benchmark = 0.006 x 30000 + 0.5 x 300 = £330.00, while
-    # the mostly-cash bot is at 439.76 + 0.00119940 x 30000 = £475.74.
+    # BTC crashes -40%: benchmark = 0.004 x 30000 + 300 = £420.00, while the
+    # mostly-cash bot is at 439.76 + 0.00119940 x 30000 = £475.74.
     open_and_snapshot(led, config)
     buy_btc(led, config, run_date="2026-07-01")
-    crashed = {"BTC": D("30000"), "QQQ": D("300")}
+    crashed = {**DAY_ONE_PRICES, "BTC": D("30000")}
     report = build_weekly_report(led, config, crashed, WEEK_ENDING)
-    assert report.benchmark_value_gbp == D("330.00")
+    assert report.benchmark_value_gbp == D("420.00")
     assert report.portfolio_value_gbp == D("475.74")
     text = render_weekly_report(report)
     assert "ahead of buy-and-hold" in text
@@ -196,12 +200,12 @@ def test_quiet_week_still_reports_benchmark_and_level_wording(config, led):
 
 
 def test_costs_split_week_vs_cumulative(config, led):
-    """A QQQ buy landed last ISO week; a BTC buy this week. Week costs count
-    only the BTC trade; cumulative counts both — including the QQQ trade's
+    """A HYPE buy landed last ISO week; a BTC buy this week. Week costs count
+    only the BTC trade; cumulative counts both — including the HYPE trade's
     30p FX cost, which must stay visible forever."""
     open_and_snapshot(led, config, day_one="2026-06-26")
-    buy_qqq(led, config, run_date=str(LAST_WEEK_FRIDAY))  # fees £0, FX £0.30, spread £0.01
-    buy_btc(led, config, run_date="2026-07-01")  # fees £0.24, FX £0, spread £0.03
+    buy_hype(led, config, run_date=str(LAST_WEEK_FRIDAY))  # fee £0.24, FX £0.30, spread £0.09
+    buy_btc(led, config, run_date="2026-07-01")  # fee £0.24, FX £0, spread £0.03
 
     report = build_weekly_report(led, config, MOVED_PRICES, WEEK_ENDING)
 
@@ -210,10 +214,10 @@ def test_costs_split_week_vs_cumulative(config, led):
     assert report.week_costs.spread_gbp == D("0.03")
     assert report.week_costs.paid_gbp == D("0.24")
 
-    assert report.cumulative_costs.fee_gbp == D("0.24")
+    assert report.cumulative_costs.fee_gbp == D("0.48")
     assert report.cumulative_costs.fx_gbp == D("0.30")
-    assert report.cumulative_costs.spread_gbp == D("0.04")
-    assert report.cumulative_costs.paid_gbp == D("0.54")
+    assert report.cumulative_costs.spread_gbp == D("0.12")
+    assert report.cumulative_costs.paid_gbp == D("0.78")
 
     # last week's trade is in the cumulative costs but not the week's activity
     assert [t.asset for t in report.trades] == ["BTC"]
@@ -231,15 +235,18 @@ def test_missing_benchmark_snapshot_raises(config, led):
 def test_missing_price_for_held_asset_raises(config, led):
     open_and_snapshot(led, config)
     buy_btc(led, config, run_date="2026-07-01")
+    prices_without_btc = {k: v for k, v in MOVED_PRICES.items() if k != "BTC"}
     with pytest.raises(ReportError, match="BTC"):
-        build_weekly_report(led, config, {"QQQ": D("380")}, WEEK_ENDING)
+        build_weekly_report(led, config, prices_without_btc, WEEK_ENDING)
 
 
 def test_missing_price_for_benchmark_asset_raises(config, led):
-    # nothing held, so the held-asset check passes; the benchmark still needs QQQ
+    # nothing held, so the held-asset check passes; the benchmark still
+    # needs every snapshotted asset priced
     open_and_snapshot(led, config)
-    with pytest.raises(ReportError, match="QQQ"):
-        build_weekly_report(led, config, {"BTC": D("55000")}, WEEK_ENDING)
+    prices_without_hype = {k: v for k, v in DAY_ONE_PRICES.items() if k != "HYPE"}
+    with pytest.raises(ReportError, match="HYPE"):
+        build_weekly_report(led, config, prices_without_hype, WEEK_ENDING)
 
 
 # -- rendered content ---------------------------------------------------------------
@@ -261,8 +268,8 @@ def test_render_contains_the_non_negotiables(config, led):
 
     # 1. the benchmark comparison, named as fee-free — the point of the project
     assert (
-        "vs. just holding the same 60/40 crypto/stocks from day one, "
-        "untouched (before costs)" in text
+        "vs. just holding the same BTC 40 / ETH 25 / SOL 15 / SUI 10 / HYPE 10 "
+        "from day one, untouched (before costs)" in text
     )
     assert "£520.00" in text
     # 2. costs always visible, spread separate from cash paid
@@ -274,7 +281,7 @@ def test_render_contains_the_non_negotiables(config, led):
     # 4. run reliability, failure detail included
     assert "3 runs this week — 1 success / 1 no-action / 1 failure" in text
     assert "failed 2026-07-01: DataError: FX feed down" in text
-    # 5. drift flags verbatim (only BTC held -> crypto is 100% of invested value)
+    # 5. drift flags verbatim (only BTC held -> 100% of invested value)
     assert report.drift_flags  # the setup really does drift
     for flag in report.drift_flags:
         assert flag in text

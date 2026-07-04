@@ -21,18 +21,24 @@ def ledger(tmp_path):
 
 def btc_buy_fill(config, notional="100.00", mid="50000"):
     order = Order(
-        sleeve="crypto", venue="kraken", asset="BTC", side="buy",
+        venue="kraken", asset="BTC", side="buy",
         mid_price=Decimal(mid), notional_gbp=Decimal(notional),
     )
-    return simulate_fill(order, config.venue("kraken"), config.fx.conversion_cost_rate)
+    return simulate_fill(
+        order, config.venue("kraken"), config.asset("BTC"),
+        config.fx.conversion_cost_rate,
+    )
 
 
 def btc_sell_fill(config, quantity, mid="50000"):
     order = Order(
-        sleeve="crypto", venue="kraken", asset="BTC", side="sell",
+        venue="kraken", asset="BTC", side="sell",
         mid_price=Decimal(mid), quantity=quantity,
     )
-    return simulate_fill(order, config.venue("kraken"), config.fx.conversion_cost_rate)
+    return simulate_fill(
+        order, config.venue("kraken"), config.asset("BTC"),
+        config.fx.conversion_cost_rate,
+    )
 
 
 # -- opening ------------------------------------------------------------------
@@ -62,7 +68,7 @@ def test_buy_moves_cash_and_creates_position(ledger, config):
     pos = ledger.position("BTC")
     assert pos.quantity == fill.quantity
     assert pos.book_cost_gbp == Decimal("100.40")  # all-in cost incl. fees
-    assert pos.sleeve == "crypto"
+    assert pos.asset == "BTC"
 
 
 def test_buy_beyond_cash_raises_and_changes_nothing(ledger, config):

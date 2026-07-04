@@ -1,8 +1,12 @@
 """Config loading. All tunables come from config.toml; missing keys fail loudly.
 
-Percentage fields in the TOML are human-readable (0.40 means 0.40%). The loader
-converts them to Decimal fractions (0.0040) so downstream code never divides by
-100 again. Fraction-valued fields are named *_rate / *_frac to keep that visible.
+Percentage fields in the TOML are human-readable (0.40 means 0.40%, 40 means
+40%). The loader converts them to Decimal fractions (0.0040 / 0.40) so
+downstream code never divides by 100 again. Fraction-valued fields are named
+*_rate / *_frac to keep that visible.
+
+v1.2: crypto-only. Assets carry their own pair-level details (quote currency,
+spread, target weight); venues carry fees only.
 """
 
 from __future__ import annotations
@@ -22,24 +26,30 @@ class ConfigError(Exception):
 @dataclass(frozen=True)
 class VenueConfig:
     name: str
-    quote_currency: str
     maker_fee_rate: Decimal
     taker_fee_rate: Decimal
-    spread_frac: Decimal  # full bid-ask spread as a fraction; half is charged per side
     sell_regulatory_fee_rate: Decimal
+
+
+@dataclass(frozen=True)
+class AssetConfig:
+    symbol: str
+    coingecko_id: str
+    venue: str
+    quote_currency: str  # the trading pair's quote, e.g. 'GBP' or 'USD'
+    spread_frac: Decimal  # full bid-ask spread for this pair; half charged per side
+    target_weight_frac: Decimal  # share of the pot this asset aims for
 
 
 @dataclass(frozen=True)
 class PortfolioConfig:
     starting_capital_gbp: Decimal
-    allocation_crypto_frac: Decimal
-    allocation_stocks_frac: Decimal
     drift_threshold_pts: Decimal
 
 
 @dataclass(frozen=True)
 class TradingConfig:
-    per_trade_cap_frac_of_sleeve: Decimal
+    per_trade_cap_frac_of_asset: Decimal
     min_trade_gbp: Decimal
     max_proposals_per_day: int
     max_proposals_per_week: int
@@ -68,14 +78,6 @@ class RuntimeConfig:
 
 
 @dataclass(frozen=True)
-class AssetConfig:
-    symbol: str
-    sleeve: str  # 'crypto' | 'stocks'
-    venue: str
-    coingecko_id: str | None = None  # required for crypto assets
-
-
-@dataclass(frozen=True)
 class Config:
     portfolio: PortfolioConfig
     trading: TradingConfig
@@ -91,8 +93,11 @@ class Config:
         except KeyError:
             raise ConfigError(f"unknown venue {name!r}; configured: {sorted(self.venues)}")
 
-    def sleeve_assets(self, sleeve: str) -> list[AssetConfig]:
-        return [a for a in self.assets.values() if a.sleeve == sleeve]
+    def asset(self, symbol: str) -> AssetConfig:
+        try:
+            return self.assets[symbol]
+        except KeyError:
+            raise ConfigError(f"unknown asset {symbol!r}; configured: {sorted(self.assets)}")
 
 
 def _require(section: dict, key: str, where: str) -> object:
@@ -124,18 +129,14 @@ def load_config(path: str | Path) -> Config:
     p = _section(data, "portfolio")
     portfolio = PortfolioConfig(
         starting_capital_gbp=to_decimal(_require(p, "starting_capital_gbp", "portfolio")),
-        allocation_crypto_frac=_pct_to_frac(p, "allocation_crypto_pct", "portfolio"),
-        allocation_stocks_frac=_pct_to_frac(p, "allocation_stocks_pct", "portfolio"),
         drift_threshold_pts=to_decimal(_require(p, "drift_threshold_pts", "portfolio")),
     )
-    if portfolio.allocation_crypto_frac + portfolio.allocation_stocks_frac != 1:
-        raise ConfigError("[portfolio] allocation percentages must sum to 100")
     if portfolio.starting_capital_gbp <= 0:
         raise ConfigError("[portfolio] starting_capital_gbp must be positive")
 
     t = _section(data, "trading")
     trading = TradingConfig(
-        per_trade_cap_frac_of_sleeve=_pct_to_frac(t, "per_trade_cap_pct_of_sleeve", "trading"),
+        per_trade_cap_frac_of_asset=_pct_to_frac(t, "per_trade_cap_pct_of_asset", "trading"),
         min_trade_gbp=to_decimal(_require(t, "min_trade_gbp", "trading")),
         max_proposals_per_day=int(_require(t, "max_proposals_per_day", "trading")),
         max_proposals_per_week=int(_require(t, "max_proposals_per_week", "trading")),
@@ -177,17 +178,14 @@ def load_config(path: str | Path) -> Config:
         where = f"venues.{name}"
         venue = VenueConfig(
             name=name,
-            quote_currency=str(_require(v, "quote_currency", where)),
             maker_fee_rate=_pct_to_frac(v, "maker_fee_pct", where),
             taker_fee_rate=_pct_to_frac(v, "taker_fee_pct", where),
-            spread_frac=_pct_to_frac(v, "spread_pct", where),
             sell_regulatory_fee_rate=_pct_to_frac(v, "sell_regulatory_fee_pct", where),
         )
-        # A fee or spread above 5% on a mainstream venue is a config typo, not a schedule.
+        # A fee above 5% on a mainstream venue is a config typo, not a schedule.
         for label, rate in (
             ("maker_fee_pct", venue.maker_fee_rate),
             ("taker_fee_pct", venue.taker_fee_rate),
-            ("spread_pct", venue.spread_frac),
         ):
             if rate > Decimal("0.05"):
                 raise ConfigError(f"[{where}] {label} exceeds 5% — likely a typo")
@@ -197,26 +195,30 @@ def load_config(path: str | Path) -> Config:
 
     asset_tables = _section(data, "assets")
     assets: dict[str, AssetConfig] = {}
-    for sleeve in ("crypto", "stocks"):
-        sleeve_table = asset_tables.get(sleeve)
-        if not sleeve_table:
-            raise ConfigError(f"[assets.{sleeve}] must define at least one asset")
-        for symbol, fields in sleeve_table.items():
-            where = f"assets.{sleeve}.{symbol}"
-            if symbol in assets:
-                raise ConfigError(f"[{where}] duplicate asset symbol {symbol!r}")
-            venue_name = str(_require(fields, "venue", where))
-            if venue_name not in venues:
-                raise ConfigError(f"[{where}] venue {venue_name!r} is not configured")
-            coingecko_id = fields.get("coingecko_id")
-            if sleeve == "crypto" and not coingecko_id:
-                raise ConfigError(f"[{where}] coingecko_id is required for crypto assets")
-            assets[symbol] = AssetConfig(
-                symbol=symbol,
-                sleeve=sleeve,
-                venue=venue_name,
-                coingecko_id=str(coingecko_id) if coingecko_id else None,
-            )
+    for symbol, fields in asset_tables.items():
+        where = f"assets.{symbol}"
+        venue_name = str(_require(fields, "venue", where))
+        if venue_name not in venues:
+            raise ConfigError(f"[{where}] venue {venue_name!r} is not configured")
+        spread = _pct_to_frac(fields, "spread_pct", where)
+        if spread > Decimal("0.05"):
+            raise ConfigError(f"[{where}] spread_pct exceeds 5% — likely a typo")
+        assets[symbol] = AssetConfig(
+            symbol=symbol,
+            coingecko_id=str(_require(fields, "coingecko_id", where)),
+            venue=venue_name,
+            quote_currency=str(_require(fields, "quote_currency", where)),
+            spread_frac=spread,
+            target_weight_frac=_pct_to_frac(fields, "target_weight_pct", where),
+        )
+    if not assets:
+        raise ConfigError("at least one [assets.*] table is required")
+    total_weight = sum(a.target_weight_frac for a in assets.values())
+    if total_weight != 1:
+        raise ConfigError(
+            f"[assets] target_weight_pct values must sum to 100, got "
+            f"{total_weight * 100}"
+        )
 
     return Config(
         portfolio=portfolio, trading=trading, strategy=strategy, fx=fx,

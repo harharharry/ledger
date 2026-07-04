@@ -1,14 +1,15 @@
 # Ledger configuration — every tunable lives here, never in code (CLAUDE.md).
-# All *_pct values are human-readable percentages: 0.40 means 0.40%, 60 means 60%.
+# All *_pct values are human-readable percentages: 0.40 means 0.40%, 40 means 40%.
+#
+# v1.2 (Harry, 2026-07-03): crypto-only, five-asset universe with per-asset
+# target weights replacing the old 60/40 crypto/stocks sleeves.
 
 [portfolio]
 starting_capital_gbp = 500.00
-allocation_crypto_pct = 60
-allocation_stocks_pct = 40
 drift_threshold_pts = 10
 
 [trading]
-per_trade_cap_pct_of_sleeve = 20
+per_trade_cap_pct_of_asset = 20
 min_trade_gbp = 50.00
 max_proposals_per_day = 1
 max_proposals_per_week = 5
@@ -27,47 +28,63 @@ oversold_tilt = 1.5   # size multiplier when RSI <= rsi_oversold (dip in an uptr
 overbought_tilt = 0.5 # size multiplier when RSI >= rsi_overbought (frothy)
 
 [fx]
-# One-way GBP<->USD conversion cost applied to every trade on a non-GBP venue.
-# Estimate based on Wise/bank retail FX margin; revisit when Phase 2 picks a real rail.
+# One-way GBP<->USD conversion cost applied to any trade on a non-GBP pair.
 conversion_cost_pct = 0.50
 
 [runtime]
 db_path = "ledger.db"
 kill_switch_path = "KILL_SWITCH"
 
-# Tracked assets per sleeve. Each asset names its execution venue; crypto
-# assets also need their CoinGecko id for price data.
+# The universe. Weights must sum to 100. quote_currency / spread_pct are per
+# PAIR (spread is the estimated full bid-ask; the fill engine charges half per
+# side; estimates recorded in NOTES.md). Kraken listings verified 2026-07-03:
+# BTC/ETH/SOL/SUI trade in GBP directly; HYPE is USD-quoted (listed 2026-01-28)
+# so it carries the FX conversion cost.
 
-[assets.crypto.BTC]
+[assets.BTC]
 coingecko_id = "bitcoin"
 venue = "kraken"
+quote_currency = "GBP"
+spread_pct = 0.10
+target_weight_pct = 40
 
-# PLACEHOLDER — Harry to confirm the tech/AI ETF choice before Phase 1 day one;
-# the benchmark snapshot locks it in permanently.
-[assets.stocks.QQQ]
-venue = "alpaca"
+[assets.ETH]
+coingecko_id = "ethereum"
+venue = "kraken"
+quote_currency = "GBP"
+spread_pct = 0.15
+target_weight_pct = 25
 
-# Venue fee schedules verified 2026-07-03 (see NOTES.md for sources).
-# spread_pct is the estimated FULL bid-ask spread; the fill engine charges half per side.
+[assets.SOL]
+coingecko_id = "solana"
+venue = "kraken"
+quote_currency = "GBP"
+spread_pct = 0.20
+target_weight_pct = 15
+
+[assets.SUI]
+coingecko_id = "sui"
+venue = "kraken"
+quote_currency = "GBP"
+spread_pct = 0.40
+target_weight_pct = 10
+
+[assets.HYPE]
+coingecko_id = "hyperliquid"
+venue = "kraken"
+quote_currency = "USD"
+spread_pct = 0.30
+target_weight_pct = 10
+
+# Venue fee schedules (fees only — pair-level costs live on the asset).
+# Verified 2026-07-03; see NOTES.md for sources.
 
 [venues.kraken]
-quote_currency = "GBP"
 maker_fee_pct = 0.25
 taker_fee_pct = 0.40
-spread_pct = 0.10
 sell_regulatory_fee_pct = 0.0
 
 [venues.coinbase]
-quote_currency = "GBP"
 maker_fee_pct = 0.40
 taker_fee_pct = 0.60
-spread_pct = 0.15
 sell_regulatory_fee_pct = 0.0
-
-[venues.alpaca]
-quote_currency = "USD"
-maker_fee_pct = 0.0
-taker_fee_pct = 0.0
-spread_pct = 0.05
-# SEC section 31 fee on sale proceeds ($27.80 per $1M); FINRA TAF is negligible at this size.
-sell_regulatory_fee_pct = 0.00278

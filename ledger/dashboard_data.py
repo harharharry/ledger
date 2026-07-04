@@ -140,7 +140,7 @@ def _asset_block(series: PriceSeries, gbp_closes, led: PaperLedger, config: Conf
 
     return {
         "symbol": series.symbol,
-        "sleeve": asset_cfg.sleeve,
+        "target_weight_pct": _pct(asset_cfg.target_weight_frac),
         "currency": series.currency,
         "latest_close": str(latest),
         "change_today_pct": change_pct,
@@ -171,11 +171,11 @@ def build_dashboard_data(
     }
     prices_gbp = {sym: closes[-1][1] for sym, closes in gbp_closes_by_symbol.items()}
 
-    holdings_by_sleeve = {"crypto": Decimal("0"), "stocks": Decimal("0")}
+    holdings_by_asset: dict[str, Decimal] = {}
     for pos in led.positions():
         if pos.quantity > 0 and pos.asset in prices_gbp:
-            holdings_by_sleeve[pos.sleeve] += pos.quantity * prices_gbp[pos.asset]
-    invested = sum(holdings_by_sleeve.values())
+            holdings_by_asset[pos.asset] = pos.quantity * prices_gbp[pos.asset]
+    invested = sum(holdings_by_asset.values(), Decimal("0"))
     total = cash + invested
 
     opened = led.opened_on()
@@ -184,12 +184,14 @@ def build_dashboard_data(
 
     allocation = {
         "target": {
-            "crypto": _pct(config.portfolio.allocation_crypto_frac),
-            "stocks": _pct(config.portfolio.allocation_stocks_frac),
+            sym: _pct(a.target_weight_frac) for sym, a in config.assets.items()
         },
         "actual": {
-            sleeve: (_pct(value / invested) if invested else None)
-            for sleeve, value in holdings_by_sleeve.items()
+            sym: (
+                _pct(holdings_by_asset.get(sym, Decimal("0")) / invested)
+                if invested else None
+            )
+            for sym in config.assets
         },
         "invested_gbp": _m(invested),
         "cash_gbp": _m(cash),
@@ -198,16 +200,12 @@ def build_dashboard_data(
     benchmark = None
     snapshots = [r for r in led.benchmark_snapshots() if r["phase"] == "phase1"]
     if snapshots and opened:
-        fracs = {
-            "crypto": config.portfolio.allocation_crypto_frac,
-            "stocks": config.portfolio.allocation_stocks_frac,
-        }
         bench_value = Decimal("0")
         for row in snapshots:
             asset_cfg = config.assets.get(row["asset"])
             if asset_cfg is None or row["asset"] not in prices_gbp:
                 continue
-            units = (starting * fracs[asset_cfg.sleeve]) / to_decimal(row["price_gbp"])
+            units = (starting * asset_cfg.target_weight_frac) / to_decimal(row["price_gbp"])
             bench_value += units * prices_gbp[row["asset"]]
         benchmark = {
             "ledger_pct": pnl_pct,
@@ -220,7 +218,7 @@ def build_dashboard_data(
         activity.append({
             "kind": "trade",
             "date": t["run_date"],
-            "sleeve": t["sleeve"],
+            "asset": t["asset"],
             "title": f"Bought {t['asset']}",
             "detail": f"£{t['gross_gbp']} + £{t['fee_gbp']} fees",
             "amount_gbp": str(gbp(-to_decimal(t["cash_delta_gbp"]))),
@@ -232,7 +230,7 @@ def build_dashboard_data(
             activity.append({
                 "kind": "run",
                 "date": r["run_date"],
-                "sleeve": None,
+                "asset": None,
                 "title": "Run failed" if r["outcome"] == "failure" else "No action",
                 "detail": (r["detail"] or "")[:80],
                 "amount_gbp": None,

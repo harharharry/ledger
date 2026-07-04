@@ -1,9 +1,10 @@
 """Weekly review — deterministic, read-only reporting over the paper ledger.
 
 The report answers one question above all others: how did the bot do against
-just buying the same 60/40 allocation on day one and never touching it? That
-comparison is the point of the whole project, so a report that cannot make it
-(no benchmark snapshot, no current price) refuses to ship rather than guess.
+just buying the same target-weight allocation on day one and never touching
+it? That comparison is the point of the whole project, so a report that cannot
+make it (no benchmark snapshot, no current price) refuses to ship rather than
+guess.
 
 Rules this module lives by (CLAUDE.md + reporting agent brief):
   * Read-only. Nothing here mutates trades, positions, cash, or runs.
@@ -27,7 +28,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from .config import Config, load_config
-from .data import alpaca, coingecko, fx
+from .data import coingecko, fx
 from .money import gbp, to_decimal
 from .paper_ledger import PaperLedger
 from .risk import PortfolioSnapshot, check_drift
@@ -47,7 +48,6 @@ class ReportError(Exception):
 @dataclass(frozen=True)
 class Holding:
     asset: str
-    sleeve: str
     quantity: Decimal
     market_value_gbp: Decimal
     book_cost_gbp: Decimal  # all-in (venue fee + FX included), per the ledger
@@ -71,7 +71,6 @@ class CostBreakdown:
 @dataclass(frozen=True)
 class TradeLine:
     run_date: str
-    sleeve: str
     asset: str
     side: str
     quantity: Decimal
@@ -94,7 +93,7 @@ class WeeklyReport:
     week_start: dt.date  # Monday of week_ending's ISO week
     week_ending: dt.date
     starting_capital_gbp: Decimal
-    allocation_label: str  # e.g. "60/40 crypto/stocks"
+    allocation_label: str  # e.g. "BTC 40 / ETH 25 / SOL 15 / SUI 10 / HYPE 10"
     portfolio_value_gbp: Decimal
     cash_gbp: Decimal
     holdings: tuple[Holding, ...]
@@ -112,25 +111,18 @@ class WeeklyReport:
 # -- computation ------------------------------------------------------------------
 
 
-def _allocation_frac(sleeve: str, config: Config) -> Decimal:
-    if sleeve == "crypto":
-        return config.portfolio.allocation_crypto_frac
-    if sleeve == "stocks":
-        return config.portfolio.allocation_stocks_frac
-    raise ReportError(f"unknown sleeve {sleeve!r}")
-
-
 def _pct_label(frac: Decimal) -> str:
-    """Decimal('0.6') -> '60' for the allocation label."""
+    """Decimal('0.4') -> '40' for the allocation label."""
     return format((frac * HUNDRED).normalize(), "f")
 
 
 def _benchmark_value_gbp(
     led: PaperLedger, config: Config, prices_gbp: dict[str, Decimal]
 ) -> Decimal:
-    """Value today of the untouched day-one allocation: each sleeve's share of
-    starting capital converted to units at the snapshotted phase1 price, held
-    ever since. Fee-free by construction — the render says 'before costs'."""
+    """Value today of the untouched day-one allocation: each asset's target-
+    weight share of starting capital converted to units at the snapshotted
+    phase1 price, held ever since. Fee-free by construction — the render says
+    'before costs'."""
     rows = [r for r in led.benchmark_snapshots() if r["phase"] == "phase1"]
     if not rows:
         raise ReportError(
@@ -140,28 +132,18 @@ def _benchmark_value_gbp(
     day_one = min(r["snapshot_date"] for r in rows)
     day_one_rows = [r for r in rows if r["snapshot_date"] == day_one]
 
-    seen_sleeves: set[str] = set()
     total = ZERO
     for row in day_one_rows:
         asset = row["asset"]
         asset_cfg = config.assets.get(asset)
         if asset_cfg is None:
             raise ReportError(
-                f"benchmark asset {asset!r} is not in config — cannot determine "
-                f"its sleeve allocation"
+                f"benchmark asset {asset!r} is not in config — changing the "
+                f"universe after day one breaks the buy-and-hold comparison"
             )
-        if asset_cfg.sleeve in seen_sleeves:
-            # v1 puts one asset per sleeve; two would double-count the stake.
-            raise ReportError(
-                f"multiple benchmark assets in the {asset_cfg.sleeve!r} sleeve — "
-                f"multi-asset benchmarks are unimplemented in v1"
-            )
-        seen_sleeves.add(asset_cfg.sleeve)
         if asset not in prices_gbp:
             raise ReportError(f"no current GBP price for benchmark asset {asset!r}")
-        stake = config.portfolio.starting_capital_gbp * _allocation_frac(
-            asset_cfg.sleeve, config
-        )
+        stake = config.portfolio.starting_capital_gbp * asset_cfg.target_weight_frac
         units = stake / to_decimal(row["price_gbp"])
         total += units * to_decimal(prices_gbp[asset])
     return gbp(total)
@@ -215,18 +197,17 @@ def build_weekly_report(
 
     cash = led.cash_balance_gbp()
     holdings: list[Holding] = []
-    sleeve_values: dict[str, Decimal] = {"crypto": ZERO, "stocks": ZERO}
+    holdings_by_asset: dict[str, Decimal] = {}
     for pos in led.positions():
         if pos.quantity <= 0:
             continue
         if pos.asset not in prices_gbp:
             raise ReportError(f"no current GBP price for held asset {pos.asset!r}")
         value = gbp(pos.quantity * to_decimal(prices_gbp[pos.asset]))
-        sleeve_values[pos.sleeve] = sleeve_values.get(pos.sleeve, ZERO) + value
+        holdings_by_asset[pos.asset] = value
         holdings.append(
             Holding(
                 asset=pos.asset,
-                sleeve=pos.sleeve,
                 quantity=pos.quantity,
                 market_value_gbp=value,
                 book_cost_gbp=pos.book_cost_gbp,
@@ -247,7 +228,6 @@ def build_weekly_report(
     trades = tuple(
         TradeLine(
             run_date=r["run_date"],
-            sleeve=r["sleeve"],
             asset=r["asset"],
             side=r["side"],
             quantity=to_decimal(r["quantity"]),
@@ -258,9 +238,9 @@ def build_weekly_report(
         for r in week_trade_rows
     )
 
-    allocation_label = (
-        f"{_pct_label(config.portfolio.allocation_crypto_frac)}/"
-        f"{_pct_label(config.portfolio.allocation_stocks_frac)} crypto/stocks"
+    allocation_label = " / ".join(
+        f"{symbol} {_pct_label(asset.target_weight_frac)}"
+        for symbol, asset in config.assets.items()
     )
 
     return WeeklyReport(
@@ -280,7 +260,7 @@ def build_weekly_report(
         trades=trades,
         runs=_run_summary(led.runs_between(week_start, week_ending)),
         drift_flags=check_drift(
-            PortfolioSnapshot(cash_gbp=cash, holdings_value_gbp=sleeve_values),
+            PortfolioSnapshot(cash_gbp=cash, holdings_value_gbp=holdings_by_asset),
             config,
         ),
     )
@@ -342,7 +322,7 @@ def render_weekly_report(report: WeeklyReport) -> str:
         a("Holdings:")
         for h in report.holdings:
             a(
-                f"  - {h.asset} ({h.sleeve}): {h.quantity} units, worth "
+                f"  - {h.asset}: {h.quantity} units, worth "
                 f"£{h.market_value_gbp} (cost £{h.book_cost_gbp} all-in)."
             )
     else:
@@ -407,15 +387,15 @@ def render_weekly_report(report: WeeklyReport) -> str:
 
 
 def _fetch_prices_gbp(config: Config) -> dict[str, Decimal]:
-    """Current GBP price per configured asset: BTC straight from CoinGecko in
-    GBP; stocks from Alpaca in USD, converted at the ECB reference rate."""
+    """Current GBP price per configured asset, from CoinGecko in each pair's
+    quote currency; USD pairs convert at the ECB reference rate."""
     fx_rate: Decimal | None = None
     prices: dict[str, Decimal] = {}
     for asset in config.assets.values():
-        if asset.sleeve == "crypto":
-            series = coingecko.fetch_daily_closes(asset.symbol, asset.coingecko_id)
-        else:
-            series = alpaca.fetch_daily_closes(asset.symbol)
+        series = coingecko.fetch_daily_closes(
+            asset.symbol, asset.coingecko_id,
+            vs_currency=asset.quote_currency.lower(),
+        )
         close = series.latest.close
         if series.currency == "GBP":
             prices[asset.symbol] = close

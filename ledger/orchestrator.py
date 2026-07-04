@@ -7,12 +7,17 @@ One cron invocation per day. Order of operations:
      Crashed or failed runs may be retried.
   2. Kill switch — checked before any action, every run (non-negotiable 5).
   3. Fetch prices + FX, snapshot the benchmark on day one (spec §14.7).
-  4. Strategies run most-under-allocated sleeve first; the risk manager has
-     veto over everything; survivors become paper fills (Phase 1 is fully
-     autonomous against the paper ledger — nothing real is at risk; in
+  4. Assets are evaluated most-under-target-weight first; the risk manager
+     has veto over everything; survivors become paper fills (Phase 1 is
+     fully autonomous against the paper ledger — nothing real is at risk; in
      Phase 2 execution is replaced by propose-and-approve).
   5. Every run finishes with a logged outcome: success / no-action / failure
      (non-negotiable 6). Failures record, then re-raise so cron exits nonzero.
+
+v1.2: crypto-only, multi-asset. Each asset runs the same strategy against its
+own series; the daily cadence cap (1/day) means the ordering in step 4 decides
+who gets the slot, so accumulation naturally pulls the book toward target
+weights without ever selling to rebalance.
 
 Phase 1 cadence note: the proposal caps (1/day, 5/week) are enforced against
 *executed paper trades*, which is what "proposal" means while the bot trades
@@ -28,16 +33,17 @@ from decimal import Decimal
 from pathlib import Path
 
 from . import kill_switch, risk
-from .config import Config, load_config
-from .data import alpaca, coingecko, fx
+from .config import AssetConfig, Config, load_config
+from .data import coingecko, fx
 from .data.types import PriceSeries
 from .fill_engine import Order, simulate_fill
 from .money import gbp
 from .paper_ledger import DuplicateTradeError, PaperLedger
 from .risk import PortfolioSnapshot
-from .strategies import crypto, stocks
+from .strategies import signals
 
 PENNY = Decimal("0.01")
+ZERO = Decimal("0")
 
 
 @dataclass(frozen=True)
@@ -47,42 +53,49 @@ class RunResult:
     events: tuple[str, ...]
 
 
-def affordable_notional(sleeve_cash_gbp: Decimal, venue, fx_cost_rate: Decimal) -> Decimal:
+def affordable_notional(
+    available_cash_gbp: Decimal, venue, listing: AssetConfig, fx_cost_rate: Decimal
+) -> Decimal:
     """The largest buy notional whose all-in cost (fees + FX on top) still fits
-    in the sleeve's cash. Strategies cap size at this figure so a fill can
-    never bounce off InsufficientCashError. A penny is shaved to absorb
-    rounding at the pence quantization boundary."""
-    friction = venue.taker_fee_rate + venue.spread_frac / 2
-    if venue.quote_currency != "GBP":
+    in cash. The strategy caps size at this figure so a fill can never bounce
+    off InsufficientCashError. A penny is shaved to absorb rounding at the
+    pence quantization boundary.
+
+    Affordability is checked against TOTAL cash, not the asset's target-weight
+    slice: its only job is preventing overdraw, and with the 1/day cadence cap
+    there is at most one fill per run anyway. Per-asset sizing discipline is
+    the risk manager's cap (with the floor-wins rule) — checking the slice
+    here would deadlock 10%-weight satellites forever, since 10% of the pot
+    can never cover a floor-sized trade plus fees at £500."""
+    friction = venue.taker_fee_rate + listing.spread_frac / 2
+    if listing.quote_currency != "GBP":
         friction += fx_cost_rate
-    return gbp(sleeve_cash_gbp / (1 + friction)) - PENNY
+    return gbp(available_cash_gbp / (1 + friction)) - PENNY
 
 
 def _week_start(day: dt.date) -> dt.date:
     return day - dt.timedelta(days=day.weekday())
 
 
-def _sleeve_order(snapshot: PortfolioSnapshot, config: Config) -> list[str]:
-    """Most-under-allocated sleeve gets first claim on the daily proposal slot.
-    A fixed order would systematically starve whichever sleeve came second."""
-    total = sum(snapshot.holdings_value_gbp.values())
-    targets = {
-        "crypto": config.portfolio.allocation_crypto_frac,
-        "stocks": config.portfolio.allocation_stocks_frac,
-    }
+def _asset_order(snapshot: PortfolioSnapshot, config: Config) -> list[str]:
+    """Most-under-target asset gets first claim on the daily proposal slot.
+    A fixed order would systematically starve whatever came last; this way
+    accumulation pulls the book toward target weights by construction."""
+    total = sum(snapshot.holdings_value_gbp.values(), start=ZERO)
 
-    def under_allocation(sleeve: str) -> Decimal:
-        share = snapshot.holdings_value_gbp[sleeve] / total if total else Decimal("0")
-        return targets[sleeve] - share
+    def under_allocation(symbol: str) -> Decimal:
+        share = (
+            snapshot.holdings_value_gbp.get(symbol, ZERO) / total if total else ZERO
+        )
+        return config.assets[symbol].target_weight_frac - share
 
-    return sorted(targets, key=lambda s: (-under_allocation(s), s))
+    return sorted(config.assets, key=lambda s: (-under_allocation(s), s))
 
 
 def run_daily(
     config: Config,
     led: PaperLedger,
-    fetch_crypto,
-    fetch_stocks,
+    fetch_series,
     fetch_fx,
     today: dt.date | None = None,
     kill_switch_path: str | Path | None = None,
@@ -108,11 +121,9 @@ def run_daily(
         led.open(config.portfolio.starting_capital_gbp)
 
         fx_rate = fetch_fx()
-        series_by_symbol: dict[str, PriceSeries] = {}
-        for asset in config.sleeve_assets("crypto"):
-            series_by_symbol[asset.symbol] = fetch_crypto(asset)
-        for asset in config.sleeve_assets("stocks"):
-            series_by_symbol[asset.symbol] = fetch_stocks(asset)
+        series_by_symbol: dict[str, PriceSeries] = {
+            symbol: fetch_series(asset) for symbol, asset in config.assets.items()
+        }
 
         prices_gbp: dict[str, Decimal] = {}
         for symbol, series in series_by_symbol.items():
@@ -127,35 +138,29 @@ def run_daily(
             )
             events.append("day one: benchmark starting prices snapshotted")
 
-        holdings = {"crypto": Decimal("0"), "stocks": Decimal("0")}
+        holdings: dict[str, Decimal] = {}
         for pos in led.positions():
             if pos.quantity > 0:
-                holdings[pos.sleeve] += pos.quantity * prices_gbp[pos.asset]
+                holdings[pos.asset] = pos.quantity * prices_gbp[pos.asset]
         snapshot = PortfolioSnapshot(
             cash_gbp=led.cash_balance_gbp(), holdings_value_gbp=holdings
         )
         for flag in risk.check_drift(snapshot, config):
             events.append(f"drift: {flag}")
 
-        propose_fns = {"crypto": crypto.propose, "stocks": stocks.propose}
-        allocations = {
-            "crypto": config.portfolio.allocation_crypto_frac,
-            "stocks": config.portfolio.allocation_stocks_frac,
-        }
         trades = 0
-        for sleeve in _sleeve_order(snapshot, config):
-            asset = config.sleeve_assets(sleeve)[0]
-            series = series_by_symbol[asset.symbol]
+        for symbol in _asset_order(snapshot, config):
+            asset = config.assets[symbol]
+            series = series_by_symbol[symbol]
             venue = config.venue(asset.venue)
-            sleeve_cash = led.cash_balance_gbp() * allocations[sleeve]
             affordable = affordable_notional(
-                sleeve_cash, venue, config.fx.conversion_cost_rate
+                led.cash_balance_gbp(), venue, asset, config.fx.conversion_cost_rate
             )
 
-            proposal = propose_fns[sleeve](series, config, affordable)
+            proposal = signals.propose_accumulation(series, asset, config, affordable)
             if proposal is None:
                 events.append(
-                    f"{sleeve}: no proposal (trend gate closed, or size below "
+                    f"{symbol}: no proposal (trend gate closed, or size below "
                     f"the fee floor)"
                 )
                 continue
@@ -167,30 +172,30 @@ def run_daily(
                 kill_switch_path=ks_path,
             )
             if decision.proposal is None:
-                events.append(f"{sleeve}: blocked — {'; '.join(decision.reasons)}")
+                events.append(f"{symbol}: blocked — {'; '.join(decision.reasons)}")
                 continue
             if decision.verdict == "resized":
-                events.append(f"{sleeve}: {'; '.join(decision.reasons)}")
+                events.append(f"{symbol}: {'; '.join(decision.reasons)}")
 
             approved = decision.proposal
             order = Order(
-                sleeve=approved.sleeve, venue=approved.venue, asset=approved.asset,
+                venue=approved.venue, asset=approved.asset,
                 side=approved.side, mid_price=series.latest.close,
-                fx_rate=Decimal("1") if venue.quote_currency == "GBP" else fx_rate,
+                fx_rate=Decimal("1") if asset.quote_currency == "GBP" else fx_rate,
                 notional_gbp=approved.notional_gbp,
             )
-            fill = simulate_fill(order, venue, config.fx.conversion_cost_rate)
-            trade_key = f"{today}:{approved.sleeve}:{approved.asset}:{approved.side}"
+            fill = simulate_fill(order, venue, asset, config.fx.conversion_cost_rate)
+            trade_key = f"{today}:{approved.asset}:{approved.side}"
             try:
                 led.record_fill(
                     fill, trade_key, rationale=approved.rationale, run_date=today
                 )
             except DuplicateTradeError:
-                events.append(f"{sleeve}: {trade_key} already recorded — skipped")
+                events.append(f"{symbol}: {trade_key} already recorded — skipped")
                 continue
             trades += 1
             events.append(
-                f"{sleeve}: bought {fill.quantity} {approved.asset} for "
+                f"{symbol}: bought {fill.quantity} for "
                 f"£{-fill.cash_delta_gbp} all-in (£{fill.total_friction_gbp} "
                 f"friction) — {approved.rationale}"
             )
@@ -210,8 +215,11 @@ def main() -> int:
     try:
         result = run_daily(
             config, led,
-            fetch_crypto=lambda a: coingecko.fetch_daily_closes(a.symbol, a.coingecko_id),
-            fetch_stocks=lambda a: alpaca.fetch_daily_closes(a.symbol),
+            # each asset is priced in its pair's quote currency, so paper
+            # fills execute in the currency the real Kraken pair trades
+            fetch_series=lambda a: coingecko.fetch_daily_closes(
+                a.symbol, a.coingecko_id, vs_currency=a.quote_currency.lower()
+            ),
             fetch_fx=fx.fetch_gbp_usd,
             kill_switch_path=root / config.runtime.kill_switch_path,
         )

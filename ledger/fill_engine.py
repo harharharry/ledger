@@ -3,16 +3,18 @@
 Every simulated trade is charged:
   * the venue's real fee schedule (taker by default — a daily-cadence bot
     effectively pays taker),
-  * half the estimated bid-ask spread (buys execute above mid, sells below),
-  * a one-way GBP<->quote-currency FX conversion cost on non-GBP venues,
-  * any regulatory fee on sells (SEC section 31 for US stocks).
+  * half the estimated bid-ask spread of the PAIR (buys execute above mid,
+    sells below) — spreads are per-asset config, since SUI/GBP is a much
+    thinner book than BTC/GBP,
+  * a one-way GBP<->quote-currency FX conversion cost on non-GBP pairs,
+  * any regulatory fee on sells.
 
 Conventions:
   * Buys are sized in GBP notional (the strategy thinks in GBP); fees and FX
     cost are charged on top, so total cash out exceeds the notional.
   * Sells are sized in asset quantity; fees and FX cost come out of proceeds.
   * ``fx_rate`` is quote-currency units per 1 GBP (e.g. GBPUSD ~ 1.27).
-    GBP-quoted venues must pass fx_rate == 1.
+    GBP-quoted pairs must pass fx_rate == 1.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
-from .config import VenueConfig
+from .config import AssetConfig, VenueConfig
 from .money import gbp, price, qty, to_decimal
 
 ZERO = Decimal("0")
@@ -34,11 +36,10 @@ class FillError(Exception):
 
 @dataclass(frozen=True)
 class Order:
-    sleeve: str  # 'crypto' | 'stocks'
     venue: str
     asset: str
     side: str  # 'buy' | 'sell'
-    mid_price: Decimal  # in the venue's quote currency
+    mid_price: Decimal  # in the pair's quote currency
     fx_rate: Decimal = ONE  # quote units per 1 GBP
     notional_gbp: Decimal | None = None  # required for buys
     quantity: Decimal | None = None  # required for sells
@@ -46,7 +47,6 @@ class Order:
 
 @dataclass(frozen=True)
 class Fill:
-    sleeve: str
     venue: str
     asset: str
     side: str
@@ -65,17 +65,17 @@ class Fill:
         return self.fee_gbp + self.spread_cost_gbp + self.fx_cost_gbp
 
 
-def _validate(order: Order, venue: VenueConfig) -> None:
+def _validate(order: Order, listing: AssetConfig) -> None:
     if order.side not in ("buy", "sell"):
         raise FillError(f"invalid side {order.side!r}")
-    if order.sleeve not in ("crypto", "stocks"):
-        raise FillError(f"invalid sleeve {order.sleeve!r}")
+    if order.asset != listing.symbol:
+        raise FillError(f"order asset {order.asset!r} does not match listing {listing.symbol!r}")
     if to_decimal(order.mid_price) <= 0:
         raise FillError("mid_price must be positive")
     if to_decimal(order.fx_rate) <= 0:
         raise FillError("fx_rate must be positive")
-    if venue.quote_currency == "GBP" and to_decimal(order.fx_rate) != 1:
-        raise FillError(f"venue {venue.name!r} is GBP-quoted; fx_rate must be 1")
+    if listing.quote_currency == "GBP" and to_decimal(order.fx_rate) != 1:
+        raise FillError(f"{listing.symbol} is GBP-quoted; fx_rate must be 1")
     if order.side == "buy":
         if order.notional_gbp is None or to_decimal(order.notional_gbp) <= 0:
             raise FillError("buy orders need a positive notional_gbp")
@@ -87,18 +87,19 @@ def _validate(order: Order, venue: VenueConfig) -> None:
 def simulate_fill(
     order: Order,
     venue: VenueConfig,
+    listing: AssetConfig,
     fx_conversion_cost_rate: Decimal,
     liquidity: str = "taker",
 ) -> Fill:
-    _validate(order, venue)
+    _validate(order, listing)
     if liquidity not in ("taker", "maker"):
         raise FillError(f"invalid liquidity {liquidity!r}")
 
     fee_rate = venue.taker_fee_rate if liquidity == "taker" else venue.maker_fee_rate
-    half_spread = venue.spread_frac / TWO
+    half_spread = listing.spread_frac / TWO
     mid = to_decimal(order.mid_price)
     fx = to_decimal(order.fx_rate)
-    cross_currency = venue.quote_currency != "GBP"
+    cross_currency = listing.quote_currency != "GBP"
     fx_cost_rate = fx_conversion_cost_rate if cross_currency else ZERO
 
     if order.side == "buy":
@@ -126,13 +127,12 @@ def simulate_fill(
         cash_delta_gbp = gross_gbp - fee_gbp - fx_cost_gbp
 
     return Fill(
-        sleeve=order.sleeve,
         venue=venue.name,
         asset=order.asset,
         side=order.side,
         quantity=quantity,
         exec_price=exec_price,
-        quote_currency=venue.quote_currency,
+        quote_currency=listing.quote_currency,
         fx_rate=fx,
         gross_gbp=gross_gbp,
         fee_gbp=fee_gbp,

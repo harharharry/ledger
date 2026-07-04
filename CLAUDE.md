@@ -11,6 +11,13 @@ A personal, small-scale (£500) investment assistant for Harry: paper-trades aut
 learning tool, not a market-prediction system. Never claim or imply otherwise in code comments,
 UI copy, reports, or notifications.
 
+**v1.2 revision (Harry, 2026-07-03): crypto-only.** The stocks sleeve was dropped — Harry's
+stocks live in Trading212 as separate long-term investing. The universe is five crypto assets
+with per-asset target weights (BTC 40 / ETH 25 / SOL 15 / SUI 10 / HYPE 10, all in config),
+one data API (CoinGecko), one Phase 2 venue (Kraken). Every sleeve-level rule became the same
+rule per asset. Universe changes are config edits, but the day-one benchmark snapshot locks
+the starting basket permanently.
+
 ## Non-negotiables (never change these, never "improve" around them)
 
 1. **No live order is ever placed without explicit human approval.** Automation ends at
@@ -34,21 +41,22 @@ UI copy, reports, or notifications.
 - **Runtime:** Python 3.12+, SQLite ledger, one daily cron-style run. GBP is the base currency
   for all accounting and reporting.
 - **Build-time subagents** (define in `.claude/agents/`, keep scoped tool access):
-  - `crypto-strategist` — crypto sleeve strategy logic and its tests
-  - `stocks-strategist` — stocks/ETF sleeve strategy logic and its tests
+  - `crypto-strategist` — strategy signal logic (`ledger/strategies/`) and its tests
   - `risk-manager` — position/allocation limit enforcement; veto layer; can resize/block,
     never originate
   - `reporting` — weekly review generation, benchmark comparison
+  (`stocks-strategist` was retired with the v1.2 crypto-only pivot.)
   These are how the system is *built and maintained*. The deployed bot compiles their output
   into deterministic modules (see non-negotiable 4).
 - **Strategy v1 (keep it boring):** trend filter (price vs 50-day MA) gating DCA-style
-  scheduled accumulation, momentum (RSI) tilting size. No leverage, no shorting, no
-  derivatives. Minimum trade size floor (default £50) — fee drag dominates below it.
-- **Config over code:** allocation split (default 60/40 crypto/stocks), per-trade cap (20% of
-  sleeve), drift threshold (±10pts), proposal cadence caps (1/day, 5/week), trade floor — all
-  live in a config file, never hardcoded.
-- **Benchmark:** snapshot starting prices for BTC + chosen tech/AI ETF into the ledger on day
-  one. Every report shows performance vs. untouched buy-and-hold of the same allocation.
+  scheduled accumulation, momentum (RSI) tilting size — applied independently per asset; the
+  most-under-target asset with an open gate claims the daily slot. No leverage, no shorting,
+  no derivatives. Minimum trade size floor (default £50) — fee drag dominates below it.
+- **Config over code:** per-asset target weights, per-trade cap (20% of the asset's
+  allocation, floor-wins on conflict), drift threshold (±10pts), proposal cadence caps
+  (1/day, 5/week), trade floor, per-pair spreads — all live in config, never hardcoded.
+- **Benchmark:** snapshot starting prices for the whole universe into the ledger on day one.
+  Every report shows performance vs. untouched buy-and-hold of the same weights.
 - **Tax:** trade log schema captures date, asset, quantity, GBP value, fees — sufficient to
   export a CGT-ready CSV at any time.
 
@@ -71,10 +79,11 @@ UI copy, reports, or notifications.
 - Test as you go; every module lands with tests. Prefer boring, legible code over clever code —
   Harry should be able to read a strategy file and understand it.
 - Don't add features, strategies, or abstractions beyond the spec without asking. In
-  particular: no new indicators, no ML, no additional assets in v1.
+  particular: no new indicators, no ML, no assets beyond the configured five without Harry's
+  say-so.
 - When something in the spec turns out to be wrong or unbuildable, say so and propose the fix —
   don't silently work around it.
-- Verify externally-dependent assumptions when you reach them (Alpaca crypto availability for
-  UK accounts at Phase 2; current fee schedules when building the fill engine).
+- Verify externally-dependent assumptions when you reach them (Kraken pair availability and
+  fee schedules; CoinGecko coverage for any new asset).
 - Keep a `NOTES.md` of decisions made during the build so future sessions don't re-litigate
   them.
